@@ -1,0 +1,58 @@
+
+ Apptainer Definition
+--------------------------
+
+Bootstrap: docker
+From: nvcr.io/nvidia/pytorch:24.10-py3
+
+%environment
+    export PATH=/usr/local/bin:$PATH
+
+%files
+/Users/James/GitHub/geometric-diffusion/setup/requirements.txt /opt/src/
+/Users/James/GitHub/geometric-diffusion/setup/vfx_deps.sh /opt/src/
+
+
+%post
+    set -e
+    export DEBIAN_FRONTEND=noninteractive
+    # Set timezone
+
+    # Basic packages (for all containers).
+    apt-get update \
+        && apt-get -y upgrade \
+        && apt-get -y install man-db lsb-release net-tools iproute2 netcat lsof psmisc iputils-ping network-manager iptables \
+        && yes | unminimize \
+        && curl --proto '=https' --tlsv1.2 -sSf -o ./rust-install.sh https://sh.rustup.rs \
+        && chmod +x ./rust-install.sh \
+        && ./rust-install.sh -y \
+        && python -m pip install --upgrade pip
+   
+    apt-get clean
+
+    # ComfyUI related packages.
+    apt-get -y install curl git build-essential gdb lcov pkg-config wget libnss3-dev ffmpeg \
+        libbz2-dev libffi-dev libgdbm-dev libgdbm-compat-dev liblzma-dev \
+        libncurses5-dev libreadline6-dev libsqlite3-dev libssl-dev \
+        lzma lzma-dev tk-dev uuid-dev zlib1g-dev
+
+    apt-get clean
+   
+    # Custom  cache directory
+    # mkdir -p /pip_tmp
+    # export TMPDIR=/pip_tmp
+
+    /opt/src/vfx_deps.sh
+
+    pip install --no-cache-dir --resume-retries 5 --retries 5 -r /opt/src/requirements.txt
+    # pip3 install --no-cache-dir -U --force-reinstall xformers "flash-attention>=2.7.1,<=2.8.0" --index-url https://download.pytorch.org/whl/cu126
+
+    rm -rf /pip_tmp
+   
+
+%runscript
+    echo "Running PyTorch container"
+    python3 -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
+
+%test
+    python3 -c "import torch; print('PyTorch version:', torch.__version__); print('CUDA available:', torch.cuda.is_available())"

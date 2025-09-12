@@ -1,0 +1,77 @@
+
+#Requirements
+#----------------------
+
+# base ----------------------------------------
+#-f https://download.pytorch.org/whl/cu118
+#torch==2.2.0
+#-f https://download.pytorch.org/whl/cu118
+#torchvision==0.17.0
+#-f https://download.pytorch.org/whl/cu118
+#torchaudio==2.2.0
+#torchinfo==1.7.0
+
+# comfyui dependencies
+torch
+torchsde
+torchvision
+torchaudio
+einops
+transformers>=4.37.2
+tokenizers>=0.13.3
+sentencepiece
+safetensors>=0.4.2
+aiohttp>=3.11.8
+yarl>=1.18.0
+pyyaml
+Pillow
+scipy
+tqdm
+psutil
+alembic
+SQLAlchemy
+
+# non essential dependencies:
+kornia>=0.7.1
+spandrel
+soundfile
+av>=14.2.0
+pydantic~=2.0
+pydantic-settings~=2.0
+
+# SDXL training loop requirements:
+datasets
+multiprocess
+bitsandbytes
+
+# extra
+comfy-cli
+
+# flite dependencies
+diffusers
+#einops
+jsonargparse
+peft
+pandas
+protobuf
+rich
+#sentencepiece
+#torch
+#torchvision
+#transformers
+gradio
+
+# ComfyUI Manager
+GitPython
+PyGithub
+matrix-client==0.4.0
+#transformers
+huggingface-hub>0.20
+typer
+#rich
+typing-extensions
+toml
+uv
+chardet
+
+numpy==1.26.4
