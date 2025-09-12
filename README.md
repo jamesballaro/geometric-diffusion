@@ -13,19 +13,19 @@ The implementation provides a sequential algorithmic process that combines proba
 
 ## Key Features
 
-### 🔬 **Probability Density Geodesics** (Paper 1)
+### **Probability Density Geodesics** (Paper 1)
 - **Geodesic Computation**: Computes shortest paths in diffusion latent space where distance is inversely proportional to probability density
 - **Boundary Value Problem (BVP) Algorithm**: Solves initial and boundary value problems for geodesic pathfinding
 - **Spherical Cubic Splines**: Implements smooth interpolation on hyperspheres with proper geometric constraints
 - **Bisection Sampling**: Course-to-fine optimization strategy for control point refinement
 
-### 🧠 **Pullback Metric Analysis** (Paper 2)
+### **Pullback Metric Analysis** (Paper 2)
 - **Local Latent Basis Discovery**: Derives local basis vectors through SVD of Jacobian matrices
 - **Semantic Editing**: Enables meaningful image manipulation by traversing along discovered basis vectors
 - **Feature Space Mapping**: Bridges latent space (𝒳) and feature space (ℋ) through pullback metrics
 - **Single-Timestep Editing**: Performs edits at specific diffusion timesteps without multi-step optimization
 
-### 🔄 **Integrated Workflow**
+### **Integrated Workflow**
 1. **Geodesic Optimization**: Find optimal interpolation paths between two images
 2. **Semantic Enhancement**: Apply pullback metric analysis to selected points along the geodesic
 3. **Controlled Generation**: Generate semantically meaningful intermediate images
@@ -39,9 +39,9 @@ The implementation provides a sequential algorithmic process that combines proba
 
 ```
 src/
-├── main.py                 # Main execution script
-├── pipeline.py            # Custom Stable Diffusion pipeline with geometric extensions
-├── bvp_algorithm.py       # Boundary Value Problem solver for geodesic computation
+├── main.py               # Main execution script
+├── pipeline.py           # Custom Stable Diffusion pipeline with geometric extensions
+├── bvp_algorithm.py      # Boundary Value Problem solver for geodesic computation
 ├── geodesic.py           # Spherical cubic splines and geometric utilities
 ├── semantic_utils.py     # Pullback metric and local basis computation
 ├── score.py              # Score function processing
