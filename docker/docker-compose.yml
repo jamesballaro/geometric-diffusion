@@ -1,0 +1,17 @@
+version: '3.8'
+services:
+  geometric-diffusion:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: geometric-diffusion
+    container_name: geometric-diffusion
+    runtime: nvidia  # For GPU support
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - .:/workspace
+      - ./models:/model  # Mount your models directory
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
