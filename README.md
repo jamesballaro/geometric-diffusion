@@ -214,14 +214,6 @@ python -c "import torch; print(torch.cuda.is_available())"
 - **Theoretical Foundation**: Bridges probability density and Riemannian geometric perspectives
 - **Plug-and-play**: Neither method requires model training (although there is some prompt embedding inversion in the first algorithm). *This means the whole method can be used on a frozen/pre-trained stable diffusion network*.
 
-## Results
-
-The integrated approach demonstrates:
-- **Smoother Interpolations**: Geodesic paths provide more natural transitions between images
-- **Semantic Consistency**: Pullback metric analysis ensures meaningful semantic changes
-- **Computational Efficiency**: Single-timestep editing reduces computational overhead
-- **Quality Preservation**: Maintains image quality while enabling controlled manipulation
-
 ## Citation
 
 If you use this code in your research, please cite both original papers:

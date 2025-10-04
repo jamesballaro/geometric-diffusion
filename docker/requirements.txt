@@ -1,77 +1,61 @@
-
-#Requirements
-#----------------------
-
-# base ----------------------------------------
-#-f https://download.pytorch.org/whl/cu118
-#torch==2.2.0
-#-f https://download.pytorch.org/whl/cu118
-#torchvision==0.17.0
-#-f https://download.pytorch.org/whl/cu118
-#torchaudio==2.2.0
-#torchinfo==1.7.0
+# --- Core Torch stack ---
+torch==2.3.0
+torchvision==0.18.0
+torchaudio==2.3.0
+torchsde==0.2.6
+torchinfo==1.7.0
 
 # comfyui dependencies
-torch
-torchsde
-torchvision
-torchaudio
-einops
-transformers>=4.37.2
-tokenizers>=0.13.3
-sentencepiece
-safetensors>=0.4.2
-aiohttp>=3.11.8
-yarl>=1.18.0
-pyyaml
-Pillow
-scipy
-tqdm
-psutil
-alembic
-SQLAlchemy
+einops==0.8.1
+transformers==4.43.4
+tokenizers==0.19.1
+sentencepiece==0.2.1
+safetensors==0.4.3
+aiohttp==3.12.15
+yarl==1.20.1
+pyyaml==6.0.1
+Pillow==10.4.0
+scipy==1.10.1
+tqdm==4.66.4
+psutil==7.1.0
+alembic==1.16.5
+SQLAlchemy==2.0.43
 
-# non essential dependencies:
-kornia>=0.7.1
-spandrel
-soundfile
-av>=14.2.0
-pydantic~=2.0
-pydantic-settings~=2.0
+# non essential dependencies
+kornia==0.8.1
+spandrel==0.4.1
+soundfile==0.12.1
+av==15.1.0
+pydantic==2.11.9
+pydantic-settings==2.10.1
 
-# SDXL training loop requirements:
-datasets
-multiprocess
+# SDXL training loop requirements
+datasets==4.1.1
+multiprocess==0.70.16
 bitsandbytes
 
 # extra
-comfy-cli
+comfy-cli==1.5.1
+yaml
 
 # flite dependencies
-diffusers
-#einops
-jsonargparse
-peft
-pandas
-protobuf
-rich
-#sentencepiece
-#torch
-#torchvision
-#transformers
-gradio
+diffusers==0.29.2
+jsonargparse==4.41.0
+pandas==2.2.2
+protobuf==5.27.2
+rich==14.1.0
+gradio==5.46.1
 
 # ComfyUI Manager
-GitPython
-PyGithub
+GitPython==3.1.45
+PyGithub==2.8.1
 matrix-client==0.4.0
-#transformers
-huggingface-hub>0.20
-typer
-#rich
-typing-extensions
-toml
-uv
-chardet
+huggingface-hub==0.24.6
+typer==0.19.1
+typing-extensions==4.15.0
+toml==0.10.2
+uv==0.8.19
+chardet==5.2.0
 
+# numpy (pinned to torch 2.3 compatibility)
 numpy==1.26.4

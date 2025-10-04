@@ -1,15 +1,18 @@
-# Base image: huggingface PyTorch container with CPU support
 
-#FROM pytorch/pytorch:2.2.0-cpu
-FROM huggingface/transformers-pytorch-cpu
-
+# Base images:
+# Mac (arm64) CPU
+FROM armswdev/pytorch-arm-neoverse:r24.07-torch-2.3.0-onednn-acl
+# CUDA 12.0 + cuDNN 8.3.2
+#docker pull pytorch/pytorch:2.8.0-cuda12.9-cudnn9-runtime
 # Set environment variables
+
+USER root
+
 ENV TZ=Europe/London \
     PATH=/usr/local/bin:$PATH \
     DEBIAN_FRONTEND=noninteractive
 
 # Copy dependency files into container
-
 COPY requirements.txt /opt/src/
 COPY vfx_deps.sh /opt/src/
 
@@ -28,11 +31,10 @@ RUN apt-get update && apt-get -y upgrade && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install custom VFX dependencies (Imath, OpenEXR, OCIO, OIIO, etc.)
-RUN chmod +x /opt/src/vfx_deps.sh && /opt/src/vfx_deps.sh
+RUN chmod +x /opt/src/vfx_deps.sh && \
+    stdbuf -oL -eL bash -x /opt/src/vfx_deps.sh
 
 RUN pip install --no-cache-dir -r /opt/src/requirements.txt
-
-WORKDIR /workspace
 
 # Default run command: verify PyTorch + CUDA
 # CMD ["python3", "-c", "import torch; print(torch.__version__); print(torch.cuda.is_available())"]

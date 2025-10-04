@@ -9,7 +9,7 @@ import yaml
 def main():
     device = torch.device("cuda")
     torch_dtype = torch.float32
-    model_id = "/model/stable-diffusion-2-1-base"
+    model_id = "stabilityai/stable-diffusion-2-1-base"
 
     scheduler = DDIMScheduler.from_pretrained(model_id, subfolder='scheduler')
     pipe = CustomStableDiffusionPipeline.from_pretrained(model_id, scheduler=scheduler, torch_dtype=torch.float32)
@@ -19,7 +19,7 @@ def main():
     pipe.to(device)
     pipe.scheduler.set_timesteps(50, device=device)
     pipe.set_seed(67280421310721)
-    
+
     pipe.unet.requires_grad_(False)
     pipe.text_encoder.requires_grad_(False)
     pipe.vae.requires_grad_(False)
@@ -36,7 +36,7 @@ def main():
         pipe = pipe,
         test_name = 'dog_test',
         output_dir = output_dir,
-        image_path1 = 'assets/dog17_0.png', 
+        image_path1 = 'assets/dog17_0.png',
         image_path2 ='assets/dog17_1.png',
         prompt1 = "a cute dog",
         prompt2 = "a cute dog",
@@ -67,9 +67,9 @@ def main():
         },
         grad_args = {
             "grad_batch_size": 10,
-            "grad_sample_range": 100,  
+            "grad_sample_range": 100,
             "grad_guidance_0": 1.0,
-            "grad_guidance_1": 1.0  
+            "grad_guidance_1": 1.0
         },
         bisection_args = {
             "max_strength": 4,
@@ -78,10 +78,10 @@ def main():
         },
         semantic_edit_args = {
             "image_idx": 2,
-            "op": 'mid', 
+            "op": 'mid',
             "vis_num": 2,
             "vis_num_pc": 2,
-            "pca_rank": 3, 
+            "pca_rank": 3,
             "edit_prompt": ("big ears"),
             "x_guidance_step": 64,
             "x_guidance_strength": 0.3
