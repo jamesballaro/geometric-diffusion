@@ -1,0 +1,52 @@
+test_name: "dog17_1est"
+image_path1: "assets/dog17_0.png"
+image_path2: "assets/dog17_1.png"
+prompt1: "a cute dog"
+prompt2: "a cute dog"
+uncond_prompt: ""
+neg_prompt: >
+  A doubling image, unrealistic, artifacts, distortions, unnatural blending, ghosting effects,
+  overlapping edges, harsh transitions, motion blur, poor resolution, low detail
+noise_level: 0.6
+alpha: 0.002
+guidance_scale: 1
+use_neg_cfg: false
+output_start_images: false
+use_pu_sampling: false
+grad_analysis_out: false
+output_interval: -1
+output_separate_images: false
+project_to_sphere: true
+
+bvp_opt_args:
+  opt_max_iter: 400
+  opt_lr: 0.1
+  lr_scheduler: "linear"
+  lr_divide: true
+
+text_inv_args:
+  text_inv_lr: 0.005
+  text_inv_bsz: 2
+  text_inv_path: "text_inversion_checkpoints/sd2-1/"
+  text_inv_steps: 500
+
+grad_args:
+  grad_batch_size: 10
+  grad_sample_range: 100
+  grad_guidance_0: 1.0
+  grad_guidance_1: 1.0
+
+bisection_args:
+  max_strength: 4
+  bisect_interval: 100
+  only_new_points: false
+
+semantic_edit_args:
+  image_idx: 2
+  op: "mid"
+  vis_num: 2
+  vis_num_pc: 2
+  pca_rank: 3
+  edit_prompt: "big ears"
+  x_guidance_step: 64
+  x_guidance_strength: 0.3

@@ -9,7 +9,6 @@ import torch
 import torch.nn.functional as F
 import torchvision.utils as tvu
 
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 from PIL import Image
 from einops import rearrange, einsum
@@ -37,21 +36,25 @@ from transformers import (
 from semantic_utils import get_h, local_encoder_pullback_zt
 
 class CustomStableDiffusionPipeline(StableDiffusionPipeline):
-    def __init__(self, 
-        vae: AutoencoderKL, 
-        text_encoder: CLIPTextModel, 
-        tokenizer: CLIPTokenizer, 
-        unet: UNet2DConditionModel, 
-        scheduler: DDIMScheduler, 
-        safety_checker: StableDiffusionSafetyChecker, 
-        feature_extractor: CLIPImageProcessor, 
-        image_encoder: CLIPVisionModelWithProjection = None, 
+    def __init__(self,
+        vae: AutoencoderKL,
+        text_encoder: CLIPTextModel,
+        tokenizer: CLIPTokenizer,
+        unet: UNet2DConditionModel,
+        scheduler: DDIMScheduler,
+        safety_checker: StableDiffusionSafetyChecker,
+        feature_extractor: CLIPImageProcessor,
+        image_encoder: CLIPVisionModelWithProjection = None,
         requires_safety_checker: bool = True):
 
         super().__init__(vae, text_encoder, tokenizer, unet, scheduler, safety_checker, feature_extractor, image_encoder, requires_safety_checker)
-        
+
         self.generator = torch.Generator(device=self.device)
         self.disable_xformers_memory_efficient_attention()
+
+        self.unet.requires_grad_(False)
+        self.text_encoder.requires_grad_(False)
+        self.vae.requires_grad_(False)
 
         self.init_semantic_unet()
 
@@ -70,20 +73,20 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
 
     @torch.no_grad()
     def run_edit_local_encoder_pullback_zt(
-            self, 
-            noise_level, 
-            latent_t, 
-            latent_T, 
-            idx, 
-            op, 
-            vis_num, 
-            vis_num_pc=1, 
-            pca_rank=50, 
-            x_guidance_step=64, 
+            self,
+            noise_level,
+            latent_t,
+            latent_T,
+            idx,
+            op,
+            vis_num,
+            vis_num_pc=1,
+            pca_rank=50,
+            x_guidance_step=64,
             x_guidance_strength=0.5,
             backward_fn=None,
-            edit_prompt=None, 
-            output_dir=None, 
+            edit_prompt=None,
+            output_dir=None,
             vis_vT=False,
         ):
         block_idx = 0
@@ -96,18 +99,18 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
         if edit_prompt is not None:
             self.edit_prompt = edit_prompt
             self.edit_prompt_emb = self.encode_prompt(self.edit_prompt)[0]
- 
+
         # get local basis
         local_basis_name = f'local_basis-_{idx}-{noise_level}T-"{self.edit_prompt}"-{op}-block_{block_idx}-seed_{seed}'
 
-        
+
         save_dir = f'./inputs/local_encoder_pullback_stable_diffusion-dataset_-num_steps_{num_steps}-pca_rank_{pca_rank}'
         os.makedirs(save_dir, exist_ok=True)
 
         u_path = os.path.join(save_dir, 'u-' + local_basis_name + '.pt')
         s_path = os.path.join(save_dir, 's-' + local_basis_name + '.pt')
         vT_path = os.path.join(save_dir, 'vT-' + local_basis_name + '.pt')
-        
+
         # self.scheduler.set_timesteps(num_steps)
 
         t = self.get_timesteps(noise_level, return_single=True)
@@ -116,12 +119,12 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
         if os.path.exists(u_path) and os.path.exists(vT_path):
             u = torch.load(u_path, map_location=self.device).type(self.dtype)
             vT = torch.load(vT_path, map_location=self.device).type(self.dtype)
-            
+
         # computed local basis
         else:
             print('Run local pullback')
             u, s, vT = self.unet.local_encoder_pullback_zt(
-                sample=latent_t, timestep=t, encoder_hidden_states=self.edit_prompt_emb, op=op, block_idx=block_idx, 
+                sample=latent_t, timestep=t, encoder_hidden_states=self.edit_prompt_emb, op=op, block_idx=block_idx,
                 pca_rank=pca_rank, chunk_size=5, min_iter=10, max_iter=50, convergence_threshold=1e-4,
             )
 
@@ -131,11 +134,6 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
             torch.save(u, u_path)
             torch.save(s, s_path)
             torch.save(vT, vT_path)
-
-            # plot eigenvalue spectrum
-            plt.scatter(range(s.size(0)), s.cpu().tolist(), s=1)
-            plt.savefig(os.path.join(save_dir, f'eigenvalue_spectrum-{local_basis_name}.png'))
-            plt.close()
 
             # visualize vT (using pca basis)
             pca_vT = vT.view(-1, *latent_T.shape[1:]).permute(0, 2, 3, 1)
@@ -161,7 +159,7 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
 
         original_latent_t = latent_t.clone()
         denoised_edited_latents = []
-    
+
         for pc_idx in range(vis_num_pc):
             latent_dir = []
             dir_count = 0
@@ -173,7 +171,7 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
                 latent_t_list = [original_latent_t.clone()]
                 for _ in tqdm(range(x_guidance_step), desc=f'x_space_guidance edit, pc_idx: {pc_idx}, dir: {dir_count}'):
                     latent_t_edit = self.x_space_guidance(
-                        latent_t_list[-1], t=t, vk=vk, 
+                        latent_t_list[-1], t=t, vk=vk,
                         single_edit_step=1,
                         use_edit_prompt=True,
                     )
@@ -200,21 +198,21 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
         latent_t,
         noise_level,
         guidance_scale,
-        uncond_prompt_embed, 
+        uncond_prompt_embed,
         neg_prompt_embed,
-        interp_prompt, 
+        interp_prompt,
         use_neg_cfg,
-        op, 
-        vis_num, 
-        vis_num_pc, 
+        op,
+        vis_num,
+        vis_num_pc,
         pca_rank,
-        edit_prompt,   
+        edit_prompt,
         x_guidance_step,
         x_guidance_strength,
         output_dir=None,
         ):
 
-    
+
         full_noise_level = 1
         start_timestep =  self.get_timesteps(noise_level, return_single=True) # e.g 400
 
@@ -224,13 +222,13 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
             full_noise_level,
             guidance_scale,
             latent_t,
-            uncond_prompt_embed, 
-            interp_prompt, 
-            neg_prompt_embed, 
+            uncond_prompt_embed,
+            interp_prompt,
+            neg_prompt_embed,
             use_neg_cfg,
             start_timestep,
         )
-        
+
         ddim_backward_fn = functools.partial(
             self.ddim_backward,
             guidance_scale=guidance_scale,
@@ -244,13 +242,13 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
         torch.cuda.empty_cache()
         denoised_edited_latents = self.run_edit_local_encoder_pullback_zt(
             noise_level,
-            latent_t, 
-            latent_T, 
-            0, 
-            op, 
-            vis_num, 
-            vis_num_pc, 
-            pca_rank, 
+            latent_t,
+            latent_T,
+            0,
+            op,
+            vis_num,
+            vis_num_pc,
+            pca_rank,
             x_guidance_step,
             x_guidance_strength,
             backward_fn=ddim_backward_fn,
@@ -268,7 +266,7 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
 
         # predict the noise residual
         et = self.unet(
-            torch.cat([zt, zt_edit], dim=0), t, 
+            torch.cat([zt, zt_edit], dim=0), t,
             encoder_hidden_states=self.edit_prompt_emb.repeat(2, 1, 1)
             # cross_attention_kwargs=None,
         ).sample
@@ -327,23 +325,23 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
 
     def noise_pred_cfg(self, latent, t, prompt_embed, guidance_scale=0.5):
         # model prediction with classifier free guidance
-        latent_model_input = torch.cat([latent] * 2) 
+        latent_model_input = torch.cat([latent] * 2)
         noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=prompt_embed).sample
         noise_pred_uncond, noise_pred_cond = noise_pred.chunk(2)
-        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_cond - noise_pred_uncond)  
+        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_cond - noise_pred_uncond)
         return noise_pred
 
     def noise_pred(self, latent, t, prompt_embed):
         return self.unet(latent, t, encoder_hidden_states=prompt_embed).sample
 
-    def load_text_inversion(self, 
-        prompt_embed, 
-        image_latent, 
-        prefix, 
-        postfix='', 
-        text_inv_steps=None, 
-        text_inv_path=None, 
-        text_inv_lr=None, 
+    def load_text_inversion(self,
+        prompt_embed,
+        image_latent,
+        prefix,
+        postfix='',
+        text_inv_steps=None,
+        text_inv_path=None,
+        text_inv_lr=None,
         text_inv_bsz=None,
         **kwargs):
         """
@@ -353,28 +351,28 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
         # Load the text inversion model
         checkpoint_path = '{}_{}_{}_{}.pt'.format(prefix, text_inv_steps, str(text_inv_lr).replace('.',''), postfix)
         checkpoint_path = os.path.join(text_inv_path, checkpoint_path)
-    
+
         print(f"\nLooking for text inversion checkpoints at {checkpoint_path}")
 
         # If this test has been run already, load it
         if os.path.exists(checkpoint_path):
             prompt_embed = torch.load(checkpoint_path, weights_only=True).to(self.device)
             print(f"Text inversion checkpoints loaded successfully {checkpoint_path}")
-                                                      
+
         else:
             # If there is no path, run the text_inversion
             print(f"None found at {checkpoint_path} \nCreating new checkpoint.")
             prompt_embed = self.text_inversion(prompt_embed, image_latent, text_inv_steps, text_inv_lr, text_inv_bsz).to(self.device)
             torch.save(prompt_embed, checkpoint_path)
         return prompt_embed
-    
-    def text_inversion(self, prompt_embed, latent, text_inv_steps=None, text_inv_lr=None, text_inv_bsz=None): 
+
+    def text_inversion(self, prompt_embed, latent, text_inv_steps=None, text_inv_lr=None, text_inv_bsz=None):
         """
         This routine keeps the U-Net (and the latent sample) frozen and directly optimizes the
         *context embedding* that conditions the U-Net. On each step it samples a random diffusion
         timestep t, generates Gaussian noise ε, forms the noised latent x_t via the scheduler’s
         forward process q(x_t | x_0=latent, t), and updates the embedding so that the U-Net's
-        prediction matches the ground-truth target. The result is a learned embedding tensor that 
+        prediction matches the ground-truth target. The result is a learned embedding tensor that
         “pulls” the model toward reconstructing the given latent when conditioned by this embedding.
         """
 
@@ -393,7 +391,7 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
         if latent.shape[0]< text_inv_bsz:
             latent = latent.repeat(text_inv_bsz,1,1,1)
 
-        # steps from config.yaml file    
+        # steps from config.yaml file
         for i in progress_bar:
             #Freeze optimizer
             optimizer.zero_grad()
@@ -411,7 +409,7 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
             # Add noise to the latent according to timestep (FWD)
             lat_t = self.scheduler.add_noise(lat, noise, t)
 
-            # Predict the noise added to the latent 
+            # Predict the noise added to the latent
             model_pred = self.unet(lat_t, t, encoder_hidden_states=prompt_embed_opt.repeat(text_inv_bsz, 1,1)).sample
 
             # Calc loss and propagate back
@@ -440,7 +438,7 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
 
 
         #e.g noise_level =0.8, time_stamp = 400
-        t = time_steps[-time_stamp]    
+        t = time_steps[-time_stamp]
         # t = 400
 
         if return_single:
@@ -448,15 +446,15 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
 
         # return steps: [400, .. ,1]
         return time_steps[-time_stamp:]
-    
-    def ddim_backward(self, 
-        noise_level, 
-        guidance_scale, 
-        latent, 
-        neg_prompt_embed, 
-        uncond_prompt_embed, 
-        prompt_embed, 
-        eta=0.0, 
+
+    def ddim_backward(self,
+        noise_level,
+        guidance_scale,
+        latent,
+        neg_prompt_embed,
+        uncond_prompt_embed,
+        prompt_embed,
+        eta=0.0,
         use_neg_cfg=True,
         end_timestep=None,
         ):
@@ -475,33 +473,33 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
             time_steps = self.get_timesteps(noise_level)
             extra_step_kwargs = self.prepare_extra_step_kwargs(self.generator, eta=eta)
 
-            for t in tqdm(time_steps):        
+            for t in tqdm(time_steps):
                 if end_timestep and t <= end_timestep:
                     break
 
                 if guidance_scale > 0:
                     noise_pred = self.noise_pred_cfg(latent, t, prompt_embed_cfg, guidance_scale=guidance_scale)
-                else:   
-                    noise_pred = self.noise_pred(latent, t, prompt_embed) 
+                else:
+                    noise_pred = self.noise_pred(latent, t, prompt_embed)
 
-                latent = self.scheduler.step(noise_pred, t, latent, **extra_step_kwargs).prev_sample 
-        
-        return latent 
+                latent = self.scheduler.step(noise_pred, t, latent, **extra_step_kwargs).prev_sample
 
-    def ddim_forward(self, 
-        noise_level, 
-        guidance_scale, 
-        latent, 
-        uncond_prompt_embed, 
-        prompt_embed, 
-        neg_prompt_embed, 
-        use_neg_cfg, 
+        return latent
+
+    def ddim_forward(self,
+        noise_level,
+        guidance_scale,
+        latent,
+        uncond_prompt_embed,
+        prompt_embed,
+        neg_prompt_embed,
+        use_neg_cfg,
         start_timestep=None):
         """
         This function carries out the DDIM forward process, using the UNet's own noise prediction
         instead of Gaussian noise to ensure reversability (and accurate score prediction).
 
-        Takes in a clean latent and prompt embedding and outputs the correctly noised latent for 
+        Takes in a clean latent and prompt embedding and outputs the correctly noised latent for
         the noise_level.
         """
         if noise_level > 0: # Noise level (how far to sample) = t/T
@@ -515,23 +513,23 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
                 print("start:",start_timestep, time_steps[:start_timestep-1])
 
 
-            for t in tqdm(time_steps): 
+            for t in tqdm(time_steps):
                 # Previous timestep index
                 t_prev = max((t - self.scheduler.config.num_train_timesteps // self.scheduler.num_inference_steps), 0)
-                
+
                 # Cumulative alpha for equations
-                alpha_prod_t_prev = self.scheduler.alphas_cumprod[t_prev] 
+                alpha_prod_t_prev = self.scheduler.alphas_cumprod[t_prev]
                 alpha_prod_t = self.scheduler.alphas_cumprod[t]
                 # Predict noise for latent at time t
-                
+
                 if guidance_scale > 0:
-                    prompt_embed_cfg = torch.cat([uncond_prompt_embed, prompt_embed]) 
+                    prompt_embed_cfg = torch.cat([uncond_prompt_embed, prompt_embed])
                     if use_neg_cfg:
                         prompt_embed_cfg = torch.cat([uncond_prompt_embed, prompt_embed-neg_prompt_embed])
 
                     epsilon = self.noise_pred_cfg(latent, t, prompt_embed_cfg, guidance_scale=guidance_scale)
 
-                else:  # if no classifier free guidance, save half of the computation 
+                else:  # if no classifier free guidance, save half of the computation
                     epsilon = self.noise_pred(latent, t, uncond_prompt_embed)
 
                 # We invert the prediction to estimate x_0 from the PREV timestep
@@ -541,6 +539,6 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
                 latent = alpha_prod_t**0.5 * x0 + (1- alpha_prod_t)**0.5*epsilon
 
         # print("\nlatent stats:", latent.min().item(), latent.max().item(),latent.mean().item())
-        return latent    
+        return latent
 
 

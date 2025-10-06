@@ -4,6 +4,8 @@ import torch.nn.functional as F
 import functools
 
 from tqdm import tqdm
+from dataclasses import dataclass
+from typing import Dict, Any
 
 from geodesic import SphericalCubicSpline, BisectionSampler
 from geodesic import norm_fix, norm_fix_batch, o_project, o_project_batch
@@ -37,86 +39,57 @@ class BVPOptimiser():
             raise ValueError('lr_scheduler not recognized')
         if self.lr_divide:
             cur_lr = cur_lr / len(t)
-        return cur_lr 
+        return cur_lr
+
+@dataclass
+class BVPConfig:
+    """Configuration for BVP Algorithm"""
+    # Test setting
+    test_name: str
+    image_path1: str
+    image_path2: str
+    prompt1: str
+    prompt2: str
+    output_dir: str
+
+    # CFG
+    uncond_prompt: str
+    neg_prompt: str
+    noise_level: float
+    alpha: float
+    guidance_scale: float
+    use_neg_cfg: bool
+
+    # Output settings
+    output_start_images: bool
+    num_output_imgs: int
+    use_pu_sampling: bool
+    grad_analysis_out: bool
+    output_interval: int
+    output_separate_images: bool = False
+    project_to_sphere: bool = True
+
+    # Grouped args
+    grad_args: Dict[str, Any] = None
+    bvp_opt_args: Dict[str, Any] = None
+    bisection_args: Dict[str, Any] = None
+    text_inv_args: Dict[str, Any] = None
+    semantic_edit_args: Dict[str, Any] = Non
 
 class BVPAlgorithm():
-    def __init__(
-        self,
-        
-        #high_level configs
-        device,
-        pipe,
-
-        # test setting
-        test_name,
-        image_path1,
-        image_path2,
-        prompt1,
-        prompt2,
-        output_dir,
-
-        # CFG
-        uncond_prompt,
-        neg_prompt,
-        noise_level,
-        alpha,
-        guidance_scale,
-        use_neg_cfg,
-
-        output_start_images,
-        num_output_imgs,
-        use_pu_sampling,
-        grad_analysis_out,
-        output_interval,
-
-        # grouped args
-        grad_args,
-        bvp_opt_args,
-        bisection_args,
-        text_inv_args,
-        semantic_edit_args,
-        output_separate_images=False,
-        project_to_sphere=True,
-    ):
-
-        # High level configs
-        self.pipe = pipe
+    def __init__(self, device, pipe, config: BVPConfig):
         self.device = device
+        self.pipe = pipe
+        self.config = config
+        # Copy all config attributes to self
+        for key, value in config.__dict__.items():
+            setattr(self, key, value)
 
-        # Test setting
-        self.test_name = test_name
-        self.output_dir = output_dir
-        self.image_path1 = image_path1
-        self.image_path2 = image_path2
-        self.prompt1 = pipe.encode_prompt(prompt1)[1].to(self.device)
-        self.prompt2 = pipe.encode_prompt(prompt2)[1].to(self.device)
-
-        # CFG and params
-        self.uncond_prompt = uncond_prompt
-        self.neg_prompt = neg_prompt
-        self.noise_level = noise_level
-        self.alpha = alpha
-        self.guidance_scale = guidance_scale
-        self.use_neg_cfg = use_neg_cfg
-
-        self.uncond_prompt_embed = pipe.encode_prompt(uncond_prompt)[1].to(self.device)
-        self.neg_prompt_embed = pipe.encode_prompt(neg_prompt)[1].to(self.device)
-        
-        self.output_start_images = output_start_images
-        self.output_separate_images = output_separate_images
-        self.output_interval = output_interval
-        self.use_pu_sampling = use_pu_sampling
-
-        self.num_output_imgs = num_output_imgs
-        self.project_to_sphere = project_to_sphere
-
-        # grouped args
-
-        self.bvp_opt_args = bvp_opt_args
-        self.grad_args = grad_args
-        self.bisection_args = bisection_args
-        self.text_inv_args = text_inv_args
-        self.semantic_edit_args = semantic_edit_args
+        # Process prompts
+        self.prompt1 = pipe.encode_prompt(config.prompt1)[1].to(device)
+        self.prompt2 = pipe.encode_prompt(config.prompt2)[1].to(device)
+        self.uncond_prompt_embed = pipe.encode_prompt(config.uncond_prompt)[1].to(device)
+        self.neg_prompt_embed = pipe.encode_prompt(config.neg_prompt)[1].to(device)
 
         self.init_submodules()
 
@@ -125,8 +98,8 @@ class BVPAlgorithm():
         self.sampler = BisectionSampler(self.device, **self.bisection_args)
         self.score_unit = ScoreProcessor(
             self.pipe,
-            self.device, 
-            self.uncond_prompt_embed, 
+            self.device,
+            self.uncond_prompt_embed,
             self.neg_prompt_embed,
             self.noise_level,
             **self.grad_args
@@ -145,10 +118,10 @@ class BVPAlgorithm():
         self.image_proc = ImageProcessor(
             self.pipe,
             self.device,
-            self.guidance_scale, 
-            self.noise_level, 
-            self.uncond_prompt_embed, 
-            self.neg_prompt_embed, 
+            self.guidance_scale,
+            self.noise_level,
+            self.uncond_prompt_embed,
+            self.neg_prompt_embed,
             self.timesteps_out,
             use_neg_cfg=self.use_neg_cfg,
             use_pu_sampling=self.use_pu_sampling,
@@ -174,21 +147,21 @@ class BVPAlgorithm():
 
         # Generate
         images = self.image_proc.produce_images(
-            self.spline, 
-            self.prompt_embed_opt1, self.prompt_embed_opt2, 
+            self.spline,
+            self.prompt_embed_opt1, self.prompt_embed_opt2,
             self.image_tensor1, self.image_tensor2,
             out_name
         )
-        
+
         # Save
-        image_list = [img for img in images]  
+        image_list = [img for img in images]
         return self.io_unit.save_images(image_list, out_name, edit_idx=self.edit_idx)
 
     def output_semantic_edit_input_image(self, image_path, select):
-        
+
         image_tensor = self.pipe.preprocess_image(image_path).to(self.device)
         image_latent = self.pipe.encode_image(image_tensor)
-    
+
         full_noise_level = 1
         end_timestep =  self.pipe.get_timesteps(self.noise_level, return_single=True) # e.g 400
 
@@ -198,18 +171,18 @@ class BVPAlgorithm():
         else:
             prompt_embed = self.prompt_embed_opt2
 
-        edit_prompt = self.semantic_edit_args["edit_prompt"]  
+        edit_prompt = self.semantic_edit_args["edit_prompt"]
         edit_prompt_embed = self.pipe.encode_prompt(edit_prompt)[1].to(self.device)
 
         interp_prompt = prompt_embed + edit_prompt
 
         noised_latent_T = self.pipe.ddim_forward(
-            full_noise_level, 
-            self.guidance_scale, 
-            image_latent, 
-            self.uncond_prompt_embed, 
-            prompt_embed, 
-            self.neg_prompt_embed, 
+            full_noise_level,
+            self.guidance_scale,
+            image_latent,
+            self.uncond_prompt_embed,
+            prompt_embed,
+            self.neg_prompt_embed,
             self.use_neg_cfg
         )
 
@@ -228,20 +201,20 @@ class BVPAlgorithm():
             latent=noised_latent_T,
             end_timestep=end_timestep,
         )
-        
+
         denoised_edited_latents = self.pipe.run_edit_local_encoder_pullback_zt(
             self.noise_level,
-            noised_latent_t, 
-            noised_latent_T, 
-            0, 
-            self.semantic_edit_args['op'], 
-            self.semantic_edit_args["vis_num"], 
-            self.semantic_edit_args["vis_num_pc"], 
+            noised_latent_t,
+            noised_latent_T,
+            0,
+            self.semantic_edit_args['op'],
+            self.semantic_edit_args["vis_num"],
+            self.semantic_edit_args["vis_num_pc"],
             self.semantic_edit_args["pca_rank"],
             self.semantic_edit_args["x_guidance_step"],
             self.semantic_edit_args["x_guidance_strength"],
             backward_fn=ddim_backward_fn,
-            edit_prompt=self.semantic_edit_args["edit_prompt"],  
+            edit_prompt=self.semantic_edit_args["edit_prompt"],
             output_dir=self.output_dir
         )
 
@@ -249,19 +222,19 @@ class BVPAlgorithm():
         for rank, pca_rank_latent in enumerate(denoised_edited_latents):
             dir_latent = torch.cat(pca_rank_latent)
             images = self.pipe.decode_latent(dir_latent)
-            image_list = [img.unsqueeze(0) for img in images]  
+            image_list = [img.unsqueeze(0) for img in images]
 
             image_list = self.image_proc.normalize_image_batch(image_list)
             self.io_unit.save_images(image_list, f'from_{image_path[:-4]}_pca_rank_{rank}')
 
         return
-   
+
     def output_semantic_edit_latent(self, latent, out_name):
 
         # latents are noised to t = 0.6 * T
         latent = latent.reshape(-1, 4, self.latent_dim, self.latent_dim)
-        
-        edit_prompt = self.semantic_edit_args["edit_prompt"]  
+
+        edit_prompt = self.semantic_edit_args["edit_prompt"]
         edit_prompt_embed = self.pipe.encode_prompt(edit_prompt)[1].to(self.device)
 
         interp_prompt = self.spline.lerp(self.timesteps_out, self.prompt_embed_opt1, self.prompt_embed_opt2)
@@ -273,15 +246,15 @@ class BVPAlgorithm():
             latent,
             self.noise_level,
             self.guidance_scale,
-            self.uncond_prompt_embed, 
-            self.neg_prompt_embed, 
+            self.uncond_prompt_embed,
+            self.neg_prompt_embed,
             interp_prompt[self.edit_idx:self.edit_idx+1,:,:],
             self.use_neg_cfg,
-            self.semantic_edit_args['op'], 
-            self.semantic_edit_args["vis_num"], 
-            self.semantic_edit_args["vis_num_pc"], 
+            self.semantic_edit_args['op'],
+            self.semantic_edit_args["vis_num"],
+            self.semantic_edit_args["vis_num_pc"],
             self.semantic_edit_args["pca_rank"],
-            edit_prompt,   
+            edit_prompt,
             self.semantic_edit_args["x_guidance_step"],
             self.semantic_edit_args["x_guidance_strength"],
             output_dir=self.output_dir,
@@ -292,17 +265,17 @@ class BVPAlgorithm():
             dir_latent = torch.cat(pca_rank_latent)
 
             images = self.pipe.decode_latent(dir_latent)
-            image_list = [img.unsqueeze(0) for img in images]  
+            image_list = [img.unsqueeze(0) for img in images]
             image_list = self.image_proc.normalize_image_batch(image_list)
 
         print(len(image_list))
 
         self.io_unit.save_images(image_list, out_name)
 
-        return 
+        return
 
     def output_interp_images(self, method):
-    
+
         # Then we deterministically noise the latents:
         noised_latent1 = self.pipe.ddim_forward(self.noise_level, self.guidance_scale, self.image_latent1, self.uncond_prompt_embed, self.prompt_embed_opt1, self.neg_prompt_embed, self.use_neg_cfg)
         noised_latent2 = self.pipe.ddim_forward(self.noise_level, self.guidance_scale, self.image_latent2, self.uncond_prompt_embed, self.prompt_embed_opt2, self.neg_prompt_embed, self.use_neg_cfg)
@@ -319,10 +292,10 @@ class BVPAlgorithm():
         for i in range(self.num_output_imgs):
             print(f"\nImage {i+1}/{self.num_output_imgs} | noise_level: {self.noise_level} | guidance_scale: {self.guidance_scale} | using negative cfg: {self.use_neg_cfg}| ")
             latent = self.pipe.ddim_backward(
-                self.noise_level, 
-                self.guidance_scale, 
-                interp_lat[i:i+1], 
-                self.neg_prompt_embed, 
+                self.noise_level,
+                self.guidance_scale,
+                interp_lat[i:i+1],
+                self.neg_prompt_embed,
                 self.uncond_prompt_embed,
                 interp_prompt[i:i+1,:,:],
                 eta=0.0,
@@ -341,34 +314,34 @@ class BVPAlgorithm():
         self.latent_dim = int(self.pipe.resolution[0] / 8)
 
         latents = X.reshape(-1, 4, self.latent_dim, self.latent_dim)
-        
+
         # Linear interpolation of text prompt-embeddings
         prompt_embed = self.spline.lerp(t_opt, self.prompt_embed_opt1, self.prompt_embed_opt2)
 
         # Compute score functions ( ∇ log p) from latent and prompt embedding
-        scores = self.score_unit.grad_compute_batch(latents, prompt_embed) 
+        scores = self.score_unit.grad_compute_batch(latents, prompt_embed)
 
         B, C, H, W = scores.shape
 
-        # Flatten the scores         
+        # Flatten the scores
         scores = scores.reshape(B,-1)
-        
+
         # This is the (I - ŷŷ) in the functional derivative which ensures that only the normal component of the score function affects the geodesic
         if self.project_to_sphere:
-            scores = o_project_batch(scores, X) 
+            scores = o_project_batch(scores, X)
             A = o_project_batch(A, X)
-        
+
         # Compute the scaled acceleration term
         V_norm2 = torch.sum(V * V, dim=-1)
         A_scaled = A / V_norm2[:,None]
-        
+
         # Project back to the hypersphere, these are the inner terms in the FuncDeriv
         term1 = o_project_batch(scores, V)
         term2 = o_project_batch(A_scaled, V) * (1/self.alpha)
-        
-        # Assemble the functional derivative 
+
+        # Assemble the functional derivative
         grad_all = -(term1 + term2)
-        
+
         # Grad analysis
         mean_all_norm, mean_norm1, mean_norm2, mean_angle = self.io_unit.grad_analysis(B, t_opt, self.iter, term1, term2, grad_all)
 
@@ -376,7 +349,7 @@ class BVPAlgorithm():
             # This is a heuristic, if the acceleration term too big, it will go to the wrong direction
             # Setting the learning rate to be super small can avoid this issue
             return None, mean_all_norm, mean_angle
-        
+
         return grad_all, mean_all_norm, mean_angle
 
     def step(self):
@@ -399,7 +372,7 @@ class BVPAlgorithm():
 
         # Compute gradient
         grad_all, mean_all_norm, mean_angle = self.bvp_gradient(X_opt, V_opt, A_opt, query_points)
-        
+
         # If the acceleration term is too big, we will get pulled away from the geodesic, this just accounts for that by making the optimisation finer
         if grad_all is None:
             self.sampler.add_strength(None)
@@ -410,13 +383,13 @@ class BVPAlgorithm():
         it_lr = self.optimizer.get_learning_rate(self.iter, qp)
 
         control_t = qp.detach().cpu().numpy()
-        
+
         #Logging
         if self.iter % 5 == 0:
             print('optimise {} iteration: {}, grad_norm: {}, angle: {}'.format(
                         self.test_name, self.iter, mean_all_norm, mean_angle))
             print(f't = [{control_t}]')
-        
+
         # Optimisation step:
         X_opt = X_opt - it_lr * grad_all
 
@@ -441,8 +414,8 @@ class BVPAlgorithm():
 
     def init(self):
         self.image_tensor1 = self.pipe.preprocess_image(self.image_path1).to(self.device)
-        self.image_tensor2 = self.pipe.preprocess_image(self.image_path2).to(self.device) 
-        
+        self.image_tensor2 = self.pipe.preprocess_image(self.image_path2).to(self.device)
+
         # Encode the images
         self.image_latent1 = self.pipe.encode_image(self.image_tensor1)
         self.image_latent2 = self.pipe.encode_image(self.image_tensor2)
@@ -450,7 +423,7 @@ class BVPAlgorithm():
         # We start by inverting the prompts
         self.prompt_embed_opt1 = self.pipe.load_text_inversion(self.prompt1, self.image_latent1, self.test_name, 'A', **self.text_inv_args)
         self.prompt_embed_opt2 = self.pipe.load_text_inversion(self.prompt2, self.image_latent1, self.test_name, 'B', **self.text_inv_args)
-    
+
         print("Starting DDIM noising")
         # Then we deterministically noise the latents:
         noised_latent1 = self.pipe.ddim_forward(self.noise_level, self.guidance_scale, self.image_latent1, self.uncond_prompt_embed, self.prompt_embed_opt1, self.neg_prompt_embed, self.use_neg_cfg).reshape(-1)
@@ -472,7 +445,7 @@ class BVPAlgorithm():
         self.path = dict()
         self.path[0] = p1
         self.path[1] = p2
-        
+
         # Now we can initialize the spline for geodesic optimisation.
         control_points = torch.tensor([0.0,1.0]).to(self.device)
         end_points = torch.stack([p1, p2], dim=0)
@@ -480,7 +453,7 @@ class BVPAlgorithm():
         print("\nInitializing Spline")
         torch.cuda.empty_cache()
         self.spline = SphericalCubicSpline(control_points, end_points)
-        
+
     def optimise(self):
 
         self.iter = 0
@@ -488,10 +461,10 @@ class BVPAlgorithm():
         self.output_spline_images('start')
 
         for i in range(self.optimizer.opt_max_iter):
-            
+
             # Main loop occurs here!
             finish = self.step()
-            
+
             #This stuff is just I/O
             if finish or i == self.optimizer.opt_max_iter - 1:
 
@@ -518,7 +491,7 @@ class BVPAlgorithm():
 
         self.io_unit.save_optimisation(self.path)
 
-        ts = torch.linspace(0, 1, self.num_output_imgs, device=self.device) 
+        ts = torch.linspace(0, 1, self.num_output_imgs, device=self.device)
         torch.save(self.spline(ts,1), os.path.join(self.output_dir, 'final_vs.pt'))
 
 
