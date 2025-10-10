@@ -14,8 +14,8 @@ def main(args):
     pipe = CustomStableDiffusionPipeline.from_pretrained(args.path_to_pretrained_model, scheduler=scheduler, torch_dtype=torch.float32)
 
     pipe.to(device)
-    pipe.set_resolution(512)
-    pipe.scheduler.set_timesteps(50, device=device)
+    pipe.set_resolution(args.resolution)
+    pipe.scheduler.set_timesteps(args.num_inference_steps, device=device)
 
     os.makedirs(args.output_dir, exist_ok=True)
 
@@ -25,13 +25,15 @@ def main(args):
     cfg_dict.update({
         'device': device,
         'pipe': pipe,
+        'resolution': args.resolution,
         'num_output_imgs': args.num_output_imgs,
         'output_dir': args.output_dir,
     })
 
     config = BVPConfig(**cfg_dict)
-    interpolation = BVPAlgorithm(device, pipe, config)
-
+    # interpolation = BVPAlgorithm(device, pipe, config)
+    interpolation = BVPAlgorithm(config)
+    
     interpolation.init()
     interpolation.optimise()
 

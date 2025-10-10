@@ -5,7 +5,7 @@ from torchcubicspline import(natural_cubic_spline_coeffs, NaturalCubicSpline)
     This function will contain all of the geometric code
     including the control points, spline, derivatives etc.
 """
-    
+
 class SphericalCubicSpline():
     def __init__(self, t_points, nodes):
 
@@ -30,8 +30,8 @@ class SphericalCubicSpline():
 
     # linear interpolation between two points
     def lerp(self, t_points, x0, x1):
-        return torch.cat([(1 - t) * x0 + t * x1 for t in t_points], dim=0) 
-    
+        return torch.cat([(1 - t) * x0 + t * x1 for t in t_points], dim=0)
+
     # spherical interpolation (between points on a sphere)
     def slerp(self, x0, x1, theta, a):
         # with a in [0,1], return the point on the line between x0 and x1 at the angle theta
@@ -101,10 +101,10 @@ class SphericalCubicSpline():
         for i in range(t_intervals.shape[0]):
             t_idx_pair = t_indexes[i]
 
-            # If any pair of indices are the same, the query is already on a control point 
+            # If any pair of indices are the same, the query is already on a control point
             if t_idx_pair[0] == t_idx_pair[1]:
                 interp_points.append(self.nodes[t_idx_pair[0]])
-            
+
             #Otherwise, compute slerp
             else:
                 t0, t1 = t_intervals[i] # e.g 0.3 and 0.4 for a specific query
@@ -130,7 +130,7 @@ class SphericalCubicSpline():
             x0, x1 = self.nodes[t_idx_pair]
             idx0, idx1 = t_idx_pair
 
-            # If any pair of indices are the same, the query is already on a control point 
+            # If any pair of indices are the same, the query is already on a control point
             if idx0 == idx1:
 
                 # If it is the max control point, calculate instantaneous derivative w.r.t a at the max point
@@ -142,7 +142,7 @@ class SphericalCubicSpline():
                 elif t0 == self.min_t:
                     v = derivative_function(x1, self.nodes[idx1+1], self.thetas[idx0], 0, (self.t_points[idx1+1]-t1))
                     diff_points.append(v)
-                
+
                 # Otherwise, we compute the derivative as a sum of terms from the left and the right nodes
                 else:
                     v = 0.5*derivative_function(self.nodes[idx0-1], x0, self.thetas[idx0-1], 1, (t0-self.t_points[idx0-1])) \
@@ -153,7 +153,7 @@ class SphericalCubicSpline():
                 diff_points.append(derivative_function(x0, x1, self.thetas[idx0], a, (t1-t0)))
 
         return torch.stack(diff_points)
-    
+
     def __call__(self, query_points, order=0):
         match order:
             case 0:
@@ -175,16 +175,16 @@ class BisectionSampler():
         only_new_points=False,
         ):
         control_dict = {}
-        middle_num = 0 
+        middle_num = 0
 
         # course-to-fine optimisation (the number of control points increases throughout the optimsation)
         for i in range(1, max_strength + 1):
             middle_num += (middle_num + 1)
             t = torch.linspace(0, 1, middle_num + 2)
             control_dict[i] = t[1: -1]
-        
-        #control_dict {1: [0.5000], 
-        #              2: [0.2500, 0.5000, 0.7500], 
+
+        #control_dict {1: [0.5000],
+        #              2: [0.2500, 0.5000, 0.7500],
         #              3: [0.1250, 0.2500, 0.3750, 0.5000, 0.6250, 0.7500, 0.8750]}
 
         if only_new_points:
@@ -205,7 +205,7 @@ class BisectionSampler():
         self.control_dict = control_dict
         self.cur_strength = 1
         self.bisect_interval = bisect_interval
-    
+
     def add_strength(self, it):
         if it is None:
             self.cur_strength += 1 # directly add strength without condition

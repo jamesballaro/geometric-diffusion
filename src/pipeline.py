@@ -56,6 +56,10 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
         self.text_encoder.requires_grad_(False)
         self.vae.requires_grad_(False)
 
+        # Latent downsizing factor for SD2.1 = 8
+        if self.resolution:
+            self.latent_dim = int(self.resolution[0] / 8)
+
         self.init_semantic_unet()
 
     def set_seed(self, seed):
@@ -195,62 +199,55 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
 
     @torch.no_grad()
     def run_encoder_pullback_image_latent(self,
+        config,
         latent_t,
-        noise_level,
-        guidance_scale,
         uncond_prompt_embed,
         neg_prompt_embed,
         interp_prompt,
-        use_neg_cfg,
-        op,
-        vis_num,
-        vis_num_pc,
-        pca_rank,
+        semantic_edit_args,
         edit_prompt,
-        x_guidance_step,
-        x_guidance_strength,
         output_dir=None,
         ):
 
 
         full_noise_level = 1
-        start_timestep =  self.get_timesteps(noise_level, return_single=True) # e.g 400
+        start_timestep =  self.get_timesteps(config.noise_level, return_single=True) # e.g 400
 
         # latents are noised to t = 0.6 * T
         # we find fully denoised latents with deterministic ddim_forward ( t = 1.0 *T)
         latent_T = self.ddim_forward(
             full_noise_level,
-            guidance_scale,
+            config.guidance_scale,
             latent_t,
             uncond_prompt_embed,
             interp_prompt,
             neg_prompt_embed,
-            use_neg_cfg,
+            config.use_neg_cfg,
             start_timestep,
         )
 
         ddim_backward_fn = functools.partial(
             self.ddim_backward,
-            guidance_scale=guidance_scale,
+            guidance_scale=config.guidance_scale,
             neg_prompt_embed=neg_prompt_embed,
             uncond_prompt_embed=uncond_prompt_embed,
             prompt_embed=interp_prompt,
             eta=0.0,
-            use_neg_cfg=use_neg_cfg,
+            use_neg_cfg=config.use_neg_cfg,
         )
 
         torch.cuda.empty_cache()
         denoised_edited_latents = self.run_edit_local_encoder_pullback_zt(
-            noise_level,
+            config.noise_level,
             latent_t,
             latent_T,
             0,
-            op,
-            vis_num,
-            vis_num_pc,
-            pca_rank,
-            x_guidance_step,
-            x_guidance_strength,
+            config.semantic_edit_args['op'],
+            config.semantic_edit_args['vis_num'],
+            config.semantic_edit_args['vis_num_pc'],
+            config.semantic_edit_args['pca_rank'],
+            config.semantic_edit_args['x_guidance_step'],
+            config.semantic_edit_args['x_guidance_strength'],
             backward_fn=ddim_backward_fn,
             edit_prompt=edit_prompt,
             output_dir=output_dir

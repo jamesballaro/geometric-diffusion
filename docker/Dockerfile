@@ -12,10 +12,6 @@ ENV TZ=Europe/London \
     PATH=/usr/local/bin:$PATH \
     DEBIAN_FRONTEND=noninteractive
 
-# Copy dependency files into container
-COPY requirements.txt /opt/src/
-COPY vfx_deps.sh /opt/src/
-
 # Install system dependencies
 RUN apt-get update && apt-get -y upgrade && \
     apt-get -y install --no-install-recommends \
@@ -29,6 +25,10 @@ RUN apt-get update && apt-get -y upgrade && \
     # Upgrade pip
     python -m pip install --upgrade pip && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Copy dependency files into container
+COPY requirements.txt /opt/src/
+COPY vfx_deps.sh /opt/src/
 
 # Install custom VFX dependencies (Imath, OpenEXR, OCIO, OIIO, etc.)
 RUN chmod +x /opt/src/vfx_deps.sh && \

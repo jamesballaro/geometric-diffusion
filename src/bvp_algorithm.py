@@ -11,6 +11,9 @@ from geodesic import SphericalCubicSpline, BisectionSampler
 from geodesic import norm_fix, norm_fix_batch, o_project, o_project_batch
 from score import ScoreProcessor
 from image_io import ImageProcessor, IO
+from bvp_structs import BVPConfig, BVPState
+from bvp_ouptut import BVP_OutputModule
+from bvp_gradient import BVP_GradientModule
 
 """
     This file will contain:
@@ -41,45 +44,8 @@ class BVPOptimiser():
             cur_lr = cur_lr / len(t)
         return cur_lr
 
-@dataclass
-class BVPConfig:
-    """Configuration for BVP Algorithm"""
-    # Test setting
-    test_name: str
-    image_path1: str
-    image_path2: str
-    prompt1: str
-    prompt2: str
-    output_dir: str
-
-    # CFG
-    uncond_prompt: str
-    neg_prompt: str
-    noise_level: float
-    alpha: float
-    guidance_scale: float
-    use_neg_cfg: bool
-
-    # Output settings
-    output_start_images: bool
-    num_output_imgs: int
-    use_pu_sampling: bool
-    grad_analysis_out: bool
-    output_interval: int
-    output_separate_images: bool = False
-    project_to_sphere: bool = True
-
-    # Grouped args
-    grad_args: Dict[str, Any] = None
-    bvp_opt_args: Dict[str, Any] = None
-    bisection_args: Dict[str, Any] = None
-    text_inv_args: Dict[str, Any] = None
-    semantic_edit_args: Dict[str, Any] = Non
-
 class BVPAlgorithm():
-    def __init__(self, device, pipe, config: BVPConfig):
-        self.device = device
-        self.pipe = pipe
+    def __init__(self, config: BVPConfig):
         self.config = config
         # Copy all config attributes to self
         for key, value in config.__dict__.items():
@@ -128,230 +94,10 @@ class BVPAlgorithm():
             output_start_images=self.output_start_images
         )
 
+        self.gradient_unit = BVP_GradientModule(self.config)
+        self.bvp_io_unit = BVP_OutputModule(self.config)
+
     # Main functions
-    def output_spline_images(self, out_name):
-        """
-        Decide whether to save the BVP image sequence based on iteration number and settings.
-        """
-        # Conditions for saving
-        is_start = (self.iter == 0 and self.output_start_images)
-        is_interval = (self.output_interval > 0 and self.iter > 0 and self.iter % self.output_interval == 0)
-        is_final = (out_name == 'final')
-
-        if not (is_start or is_interval or is_final):
-            return None
-
-        if is_start: print("Output start images.")
-        elif is_interval: print(f"Output image sequence at iteration {self.iter}")
-        elif is_final: print("Output final image sequence")
-
-        # Generate
-        images = self.image_proc.produce_images(
-            self.spline,
-            self.prompt_embed_opt1, self.prompt_embed_opt2,
-            self.image_tensor1, self.image_tensor2,
-            out_name
-        )
-
-        # Save
-        image_list = [img for img in images]
-        return self.io_unit.save_images(image_list, out_name, edit_idx=self.edit_idx)
-
-    def output_semantic_edit_input_image(self, image_path, select):
-
-        image_tensor = self.pipe.preprocess_image(image_path).to(self.device)
-        image_latent = self.pipe.encode_image(image_tensor)
-
-        full_noise_level = 1
-        end_timestep =  self.pipe.get_timesteps(self.noise_level, return_single=True) # e.g 400
-
-
-        if select == 1:
-            prompt_embed = self.prompt_embed_opt1
-        else:
-            prompt_embed = self.prompt_embed_opt2
-
-        edit_prompt = self.semantic_edit_args["edit_prompt"]
-        edit_prompt_embed = self.pipe.encode_prompt(edit_prompt)[1].to(self.device)
-
-        interp_prompt = prompt_embed + edit_prompt
-
-        noised_latent_T = self.pipe.ddim_forward(
-            full_noise_level,
-            self.guidance_scale,
-            image_latent,
-            self.uncond_prompt_embed,
-            prompt_embed,
-            self.neg_prompt_embed,
-            self.use_neg_cfg
-        )
-
-        ddim_backward_fn = functools.partial(
-            self.pipe.ddim_backward,
-            guidance_scale=self.guidance_scale,
-            neg_prompt_embed=self.neg_prompt_embed,
-            uncond_prompt_embed=self.uncond_prompt_embed,
-            prompt_embed=prompt_embed,
-            eta=0.0,
-            use_neg_cfg=self.use_neg_cfg,
-        )
-
-        noised_latent_t = ddim_backward_fn(
-            noise_level=1,
-            latent=noised_latent_T,
-            end_timestep=end_timestep,
-        )
-
-        denoised_edited_latents = self.pipe.run_edit_local_encoder_pullback_zt(
-            self.noise_level,
-            noised_latent_t,
-            noised_latent_T,
-            0,
-            self.semantic_edit_args['op'],
-            self.semantic_edit_args["vis_num"],
-            self.semantic_edit_args["vis_num_pc"],
-            self.semantic_edit_args["pca_rank"],
-            self.semantic_edit_args["x_guidance_step"],
-            self.semantic_edit_args["x_guidance_strength"],
-            backward_fn=ddim_backward_fn,
-            edit_prompt=self.semantic_edit_args["edit_prompt"],
-            output_dir=self.output_dir
-        )
-
-        # Save images
-        for rank, pca_rank_latent in enumerate(denoised_edited_latents):
-            dir_latent = torch.cat(pca_rank_latent)
-            images = self.pipe.decode_latent(dir_latent)
-            image_list = [img.unsqueeze(0) for img in images]
-
-            image_list = self.image_proc.normalize_image_batch(image_list)
-            self.io_unit.save_images(image_list, f'from_{image_path[:-4]}_pca_rank_{rank}')
-
-        return
-
-    def output_semantic_edit_latent(self, latent, out_name):
-
-        # latents are noised to t = 0.6 * T
-        latent = latent.reshape(-1, 4, self.latent_dim, self.latent_dim)
-
-        edit_prompt = self.semantic_edit_args["edit_prompt"]
-        edit_prompt_embed = self.pipe.encode_prompt(edit_prompt)[1].to(self.device)
-
-        interp_prompt = self.spline.lerp(self.timesteps_out, self.prompt_embed_opt1, self.prompt_embed_opt2)
-
-        # Help with reverse CFG for semantic editing
-        interp_prompt = interp_prompt + edit_prompt_embed.expand_as(interp_prompt)
-
-        denoised_edited_latents = self.pipe.run_encoder_pullback_image_latent(
-            latent,
-            self.noise_level,
-            self.guidance_scale,
-            self.uncond_prompt_embed,
-            self.neg_prompt_embed,
-            interp_prompt[self.edit_idx:self.edit_idx+1,:,:],
-            self.use_neg_cfg,
-            self.semantic_edit_args['op'],
-            self.semantic_edit_args["vis_num"],
-            self.semantic_edit_args["vis_num_pc"],
-            self.semantic_edit_args["pca_rank"],
-            edit_prompt,
-            self.semantic_edit_args["x_guidance_step"],
-            self.semantic_edit_args["x_guidance_strength"],
-            output_dir=self.output_dir,
-        )
-
-        # Save images
-        for pca_rank_latent in denoised_edited_latents:
-            dir_latent = torch.cat(pca_rank_latent)
-
-            images = self.pipe.decode_latent(dir_latent)
-            image_list = [img.unsqueeze(0) for img in images]
-            image_list = self.image_proc.normalize_image_batch(image_list)
-
-        print(len(image_list))
-
-        self.io_unit.save_images(image_list, out_name)
-
-        return
-
-    def output_interp_images(self, method):
-
-        # Then we deterministically noise the latents:
-        noised_latent1 = self.pipe.ddim_forward(self.noise_level, self.guidance_scale, self.image_latent1, self.uncond_prompt_embed, self.prompt_embed_opt1, self.neg_prompt_embed, self.use_neg_cfg)
-        noised_latent2 = self.pipe.ddim_forward(self.noise_level, self.guidance_scale, self.image_latent2, self.uncond_prompt_embed, self.prompt_embed_opt2, self.neg_prompt_embed, self.use_neg_cfg)
-
-        interp_lat =[]
-        if method == 'slerp':
-            for a in self.timesteps_out:
-                interp_lat.append(self.spline.slerp(self.timesteps_out, noised_latent1, noised_latent2, a))
-        else:
-            interp_lat = self.spline.lerp(self.timesteps_out, noised_latent1, noised_latent2)
-
-        interp_prompt = self.spline.lerp(self.timesteps_out, self.prompt_embed_opt1, self.prompt_embed_opt2)
-        images=[]
-        for i in range(self.num_output_imgs):
-            print(f"\nImage {i+1}/{self.num_output_imgs} | noise_level: {self.noise_level} | guidance_scale: {self.guidance_scale} | using negative cfg: {self.use_neg_cfg}| ")
-            latent = self.pipe.ddim_backward(
-                self.noise_level,
-                self.guidance_scale,
-                interp_lat[i:i+1],
-                self.neg_prompt_embed,
-                self.uncond_prompt_embed,
-                interp_prompt[i:i+1,:,:],
-                eta=0.0,
-                use_neg_cfg=self.use_neg_cfg
-            )
-
-            image = self.pipe.decode_latent(latent)
-            images.append(image)
-        images = self.image_proc.normalize_image_batch(images)
-
-        self.io_unit.save_images(images, f'{method}_{self.test_name}')
-        return
-
-    def bvp_gradient(self, X, V, A, t_opt) :
-        # Latent downsizing factor for SD2.1 = 8
-        self.latent_dim = int(self.pipe.resolution[0] / 8)
-
-        latents = X.reshape(-1, 4, self.latent_dim, self.latent_dim)
-
-        # Linear interpolation of text prompt-embeddings
-        prompt_embed = self.spline.lerp(t_opt, self.prompt_embed_opt1, self.prompt_embed_opt2)
-
-        # Compute score functions ( ∇ log p) from latent and prompt embedding
-        scores = self.score_unit.grad_compute_batch(latents, prompt_embed)
-
-        B, C, H, W = scores.shape
-
-        # Flatten the scores
-        scores = scores.reshape(B,-1)
-
-        # This is the (I - ŷŷ) in the functional derivative which ensures that only the normal component of the score function affects the geodesic
-        if self.project_to_sphere:
-            scores = o_project_batch(scores, X)
-            A = o_project_batch(A, X)
-
-        # Compute the scaled acceleration term
-        V_norm2 = torch.sum(V * V, dim=-1)
-        A_scaled = A / V_norm2[:,None]
-
-        # Project back to the hypersphere, these are the inner terms in the FuncDeriv
-        term1 = o_project_batch(scores, V)
-        term2 = o_project_batch(A_scaled, V) * (1/self.alpha)
-
-        # Assemble the functional derivative
-        grad_all = -(term1 + term2)
-
-        # Grad analysis
-        mean_all_norm, mean_norm1, mean_norm2, mean_angle = self.io_unit.grad_analysis(B, t_opt, self.iter, term1, term2, grad_all)
-
-        if mean_norm1 < mean_norm2:
-            # This is a heuristic, if the acceleration term too big, it will go to the wrong direction
-            # Setting the learning rate to be super small can avoid this issue
-            return None, mean_all_norm, mean_angle
-
-        return grad_all, mean_all_norm, mean_angle
-
     def step(self):
         # Get the control points. Well have 1, 3, 15 for each progressing strength level
         query_points = self.sampler.get_query_points()
@@ -371,7 +117,7 @@ class BVPAlgorithm():
         A_opt = self.spline(qp, 2)
 
         # Compute gradient
-        grad_all, mean_all_norm, mean_angle = self.bvp_gradient(X_opt, V_opt, A_opt, query_points)
+        grad_all, mean_all_norm, mean_angle = self.gradient_unit(self.state, X_opt, V_opt, A_opt, query_points)
 
         # If the acceleration term is too big, we will get pulled away from the geodesic, this just accounts for that by making the optimisation finer
         if grad_all is None:
@@ -412,6 +158,7 @@ class BVPAlgorithm():
 
         return False
 
+    # Initialisation
     def init(self):
         self.image_tensor1 = self.pipe.preprocess_image(self.image_path1).to(self.device)
         self.image_tensor2 = self.pipe.preprocess_image(self.image_path2).to(self.device)
@@ -428,9 +175,6 @@ class BVPAlgorithm():
         # Then we deterministically noise the latents:
         noised_latent1 = self.pipe.ddim_forward(self.noise_level, self.guidance_scale, self.image_latent1, self.uncond_prompt_embed, self.prompt_embed_opt1, self.neg_prompt_embed, self.use_neg_cfg).reshape(-1)
         noised_latent2 = self.pipe.ddim_forward(self.noise_level, self.guidance_scale, self.image_latent2, self.uncond_prompt_embed, self.prompt_embed_opt2, self.neg_prompt_embed, self.use_neg_cfg).reshape(-1)
-
-        print(f"Image 1: min {noised_latent1.min().item()}, max {noised_latent1.max().item()}, mean {noised_latent1.mean().item()}")
-        print(f"Image 2: min {noised_latent2.min().item()}, max {noised_latent2.max().item()}, mean {noised_latent2.mean().item()}")
 
         # for brevity (these are the points on the latent space which we interpolate between)
         p1 = noised_latent1
@@ -454,14 +198,14 @@ class BVPAlgorithm():
         torch.cuda.empty_cache()
         self.spline = SphericalCubicSpline(control_points, end_points)
 
+   # Run Optimisation
     def optimise(self):
-
         self.iter = 0
+        self.update_state()
 
-        self.output_spline_images('start')
+        self.bvp_io_unit.output_spline_images(self.state, 'start')
 
         for i in range(self.optimizer.opt_max_iter):
-
             # Main loop occurs here!
             finish = self.step()
 
@@ -475,23 +219,40 @@ class BVPAlgorithm():
                 spline_latent =  self.spline(self.timesteps_out)[self.edit_idx]
 
                 # Run the pullback diffusion method to move the latent in semantically meaningful directions
-                self.output_semantic_edit_latent(spline_latent, 'semantic')
+                self.bvp_io_unit.output_semantic_edit_latent(self.state, spline_latent, 'semantic')
 
-                self.output_semantic_edit_input_image(self.image_path1, 1)
-                self.output_semantic_edit_input_image(self.image_path2, 2)
+                self.bvp_io_unit.output_semantic_edit_input_image(self.state, self.image_path1, 1)
+                self.bvp_io_unit.output_semantic_edit_input_image(self.state, self.image_path2, 2)
 
                 # Output (un-edited) images from the spline interpolation
-                self.output_spline_images('final')
+                self.bvp_io_unit.output_spline_images(self.state, 'final')
                 break
             else:
-                self.output_spline_images(str(self.iter))
+                self.bvp_io_unit.output_spline_images(self.state, str(self.iter))
 
+            self.update_state()
             torch.cuda.empty_cache()
-
 
         self.io_unit.save_optimisation(self.path)
 
         ts = torch.linspace(0, 1, self.num_output_imgs, device=self.device)
         torch.save(self.spline(ts,1), os.path.join(self.output_dir, 'final_vs.pt'))
 
-
+    def update_state(self):
+        self.state = BVPState(
+            iter=self.iter,
+            image_latent1=self.image_latent1,
+            image_latent2=self.image_latent2,
+            image_tensor1=self.image_tensor1,
+            image_tensor2=self.image_tensor2,
+            prompt_embed_opt1=self.prompt_embed_opt1,
+            prompt_embed_opt2=self.prompt_embed_opt2,
+            uncond_prompt_embed=self.uncond_prompt_embed,
+            neg_prompt_embed=self.neg_prompt_embed,
+            timesteps_out=self.timesteps_out,
+            spline=self.spline,
+            score_unit=self.score_unit,
+            image_proc=self.image_proc,
+            io_unit=self.io_unit,
+            edit_idx=self.edit_idx,
+        )

@@ -4,8 +4,6 @@ from PIL import Image, ImageDraw
 import os
 from torchvision import transforms
 
-
-
 """
 To process all the outputs from the BVP algorithm
 """
@@ -32,8 +30,8 @@ class ImageProcessor():
         self.uncond_prompt_embed = uncond_prompt_embed
         self.neg_prompt_embed = neg_prompt_embed
         self.use_neg_cfg = use_neg_cfg
-        self.output_interval = output_interval            
-        self.use_pu_sampling = use_pu_sampling              
+        self.output_interval = output_interval
+        self.use_pu_sampling = use_pu_sampling
         self.output_start_images = output_start_images
 
         self.timesteps_out = timesteps_out
@@ -48,10 +46,10 @@ class ImageProcessor():
         for i in range(num_images):
             print(f"\nImage {i+1}/{num_images} | noise_level: {self.noise_level} | guidance_scale: {self.guidance_scale} | using negative cfg: {self.use_neg_cfg}| ")
             latent = self.pipe.ddim_backward(
-                self.noise_level, 
-                self.guidance_scale, 
-                latent_spline[i].reshape(1,4, latent_dim, latent_dim), 
-                self.neg_prompt_embed, 
+                self.noise_level,
+                self.guidance_scale,
+                latent_spline[i].reshape(1,4, latent_dim, latent_dim),
+                self.neg_prompt_embed,
                 self.uncond_prompt_embed,
                 interp_prompt[i:i+1,:,:],
                 eta=0.0,
@@ -62,7 +60,7 @@ class ImageProcessor():
             images.append(image)
 
         return images
-    
+
     def get_spline_images(self, spline, interp_prompt, image1, image2):
         # Do we want the start images too?
         images = self.decode_spline_latents(spline(self.timesteps_out), interp_prompt)
@@ -84,25 +82,25 @@ class ImageProcessor():
 
             print('Perceptual Uniform sampling ...')
             scheduler = Scheduler(self.pipe.device)
-            
+
             # images_pt = [transforms.ToTensor()(image).unsqueeze(0)
             #                     for image in images]
-            
+
             images_pt = [image.to(self.pipe.device) for image in images]
-            
+
             scheduler.from_images(images_pt)
             timesteps_out = scheduler.get_list() # start from 0 to 1
-            
+
             print('p-sampled t: ',list(timesteps_out))
-            
+
             interp_prompt = spline.lerp(timesteps_out, prompt_embed1, prompt_embed2)[1:-1]
-            
+
             out_tensor = torch.tensor(timesteps_out).to(self.device).clip(0,1)
-            
-            X = spline(out_tensor)   
+
+            X = spline(out_tensor)
 
             images[1:-1] = self.decode_spline_latents(X[1:-1], interp_prompt)
-        
+
         images = self.normalize_image_batch(images)
         return images
 
@@ -112,7 +110,7 @@ class ImageProcessor():
         image = (image * 255).round().astype("uint8")
         pil_image = Image.fromarray(image[0])
         return pil_image
-    
+
     def normalize_image_batch(self, image_list):
         images = []
         for image_tensor in image_list:
@@ -182,15 +180,15 @@ class IO():
             f.write("\n")
 
         return mean_all_norm, mean_norm1, mean_norm2, mean_angle
-    
-    def save_images(self, image_list, out_name, edit_idx=None):     
+
+    def save_images(self, image_list, out_name, edit_idx=None):
         if self.output_separate_images:
             for i, image in enumerate(image_list):
                 if out_name == 'start':
                     image.save(os.path.join(self.output_dir, 'start_imgs',  f'{i:02d}.png'))
                 else:
                     image.save(os.path.join(self.output_dir, 'out_imgs',  f'{i:02d}.png'))
-        
+
         image_long = self.display_alongside(image_list, edit_idx)
         image_path = os.path.join(self.output_dir, f'long_{out_name}.png')
         image_long.save(image_path)
@@ -208,7 +206,7 @@ class IO():
             y_offset = padding
             img_resized = image.resize(self.resolution)
             res.paste(img_resized, (x_offset, y_offset))
-            
+
             # Draw a border if the image is edited
             if edit_idx:
                 if i == edit_idx:
@@ -218,6 +216,6 @@ class IO():
 
         return res
 
-    def save_optimisation(self, path):  
+    def save_optimisation(self, path):
         torch.save(path, os.path.join(self.output_dir, 'opt_points.pth'))
         print(f'Optimisation points saved to {self.output_dir}opt_points.pth')
