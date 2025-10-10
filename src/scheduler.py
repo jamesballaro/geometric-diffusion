@@ -3,12 +3,11 @@
 import bisect
 import torch
 import torch.nn.functional as F
-from offline_lpips import create_offline_lpips
-from torchvision.models import vgg16, VGG16_Weights
+from lpips import LPIPS
 
 class Scheduler:
     def __init__(self, device='cuda:0'):
-        self.perceptual_loss = create_offline_lpips(device)
+        self.perceptual_loss = LPIPS(net='vgg').to(device)
 
     def distance(self, img_a, img_b):
         return self.perceptual_loss(img_a, img_b).item()
