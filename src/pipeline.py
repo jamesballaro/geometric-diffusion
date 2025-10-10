@@ -78,18 +78,11 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
     @torch.no_grad()
     def run_edit_local_encoder_pullback_zt(
             self,
-            noise_level,
+            config,
             latent_t,
             latent_T,
             idx,
-            op,
-            vis_num,
-            vis_num_pc=1,
-            pca_rank=50,
-            x_guidance_step=64,
-            x_guidance_strength=0.5,
             backward_fn=None,
-            edit_prompt=None,
             output_dir=None,
             vis_vT=False,
         ):
@@ -97,12 +90,20 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
         num_steps = 100
         seed = self.generator.initial_seed()
 
-        print(f'current experiment : idx : {idx}, op : {op}, block_idx : {block_idx}, vis_num : {vis_num}, vis_num_pc : {vis_num_pc}, pca_rank : {pca_rank}, edit_prompt : {edit_prompt}, x_guidance_steps: {x_guidance_step}')
+        print(
+            f"current experiment: idx: {idx}, "
+            f"op: {config.semantic_edit_args['op']}, "
+            f"block_idx: {block_idx}, "
+            f"vis_num: {config.semantic_edit_args['vis_num']}, "
+            f"vis_num_pc: {config.semantic_edit_args['vis_num_pc']}, "
+            f"pca_rank: {config.semantic_edit_args['pca_rank']}, 
+            f"edit_prompt: {config.semantic_edit_args['edit_prompt']}, "
+            f"x_guidance_steps: {config.semantic_edit_args['x_guidance_step']}"
+        )
 
         # set edit prompt
-        if edit_prompt is not None:
-            self.edit_prompt = edit_prompt
-            self.edit_prompt_emb = self.encode_prompt(self.edit_prompt)[0]
+        if  config.semantic_edit_args['edit_prompt']is not None:
+            self.edit_prompt_emb = self.encode_prompt(config.semantic_edit_args['edit_prompt'])[0]
 
         # get local basis
         local_basis_name = f'local_basis-_{idx}-{noise_level}T-"{self.edit_prompt}"-{op}-block_{block_idx}-seed_{seed}'
@@ -117,7 +118,7 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
 
         # self.scheduler.set_timesteps(num_steps)
 
-        t = self.get_timesteps(noise_level, return_single=True)
+        t = self.get_timesteps(config.noise_level, return_single=True)
 
         # load pre-computed local basis
         if os.path.exists(u_path) and os.path.exists(vT_path):
@@ -128,8 +129,16 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
         else:
             print('Run local pullback')
             u, s, vT = self.unet.local_encoder_pullback_zt(
-                sample=latent_t, timestep=t, encoder_hidden_states=self.edit_prompt_emb, op=op, block_idx=block_idx,
-                pca_rank=pca_rank, chunk_size=5, min_iter=10, max_iter=50, convergence_threshold=1e-4,
+                sample=latent_t, 
+                timestep=t, 
+                encoder_hidden_states=self.edit_prompt_emb, 
+                config.semantic_edit_args['op'],
+                block_idx=block_idx,
+                pca_rank=config.semantic_edit_args['pca_rank'], 
+                chunk_size=5, 
+                min_iter=10, 
+                max_iter=50, 
+                convergence_threshold=1e-4,
             )
 
             vT = vT.to(device=self.device, dtype=self.dtype)
@@ -186,7 +195,7 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
                 if backward_fn is not None:
                     for i, latent in enumerate(latent_t):
                         print(f"\tx_guidance denoising latent {i+1}/{latent_t.size(0)}")
-                        denoised = backward_fn(noise_level=noise_level, latent=latent.unsqueeze(0))
+                        denoised = backward_fn(noise_level=config.noise_level, latent=latent.unsqueeze(0))
                         latent_dir.append(denoised)
                         print("")
                 else:
@@ -208,7 +217,6 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
         edit_prompt,
         output_dir=None,
         ):
-
 
         full_noise_level = 1
         start_timestep =  self.get_timesteps(config.noise_level, return_single=True) # e.g 400
@@ -238,21 +246,13 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
 
         torch.cuda.empty_cache()
         denoised_edited_latents = self.run_edit_local_encoder_pullback_zt(
-            config.noise_level,
+            config,
             latent_t,
             latent_T,
             0,
-            config.semantic_edit_args['op'],
-            config.semantic_edit_args['vis_num'],
-            config.semantic_edit_args['vis_num_pc'],
-            config.semantic_edit_args['pca_rank'],
-            config.semantic_edit_args['x_guidance_step'],
-            config.semantic_edit_args['x_guidance_strength'],
             backward_fn=ddim_backward_fn,
-            edit_prompt=edit_prompt,
             output_dir=output_dir
         )
-
         return denoised_edited_latents
 
 

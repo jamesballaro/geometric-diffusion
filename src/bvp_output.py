@@ -71,7 +71,7 @@ class BVP_OutputModule():
         state.io_unit.save_images(image_list, out_name)
 
         return
-    
+
     def output_semantic_edit_input_image(self, state: BVPState, image_path, select):
         """
         This function circumvents the optimsation and uses algorithm 2 to semantically edit the input image
@@ -120,18 +120,11 @@ class BVP_OutputModule():
         )
 
         denoised_edited_latents = self.config.pipe.run_edit_local_encoder_pullback_zt(
-            self.config.noise_level,
+            self.config
             noised_latent_t,
             noised_latent_T,
             0,
-            self.config.semantic_edit_args['op'],
-            self.config.semantic_edit_args["vis_num"],
-            self.config.semantic_edit_args["vis_num_pc"],
-            self.config.semantic_edit_args["pca_rank"],
-            self.config.semantic_edit_args["x_guidance_step"],
-            self.config.semantic_edit_args["x_guidance_strength"],
             backward_fn=ddim_backward_fn,
-            edit_prompt=self.config.semantic_edit_args["edit_prompt"],
             output_dir=self.config.output_dir
         )
 
@@ -140,7 +133,6 @@ class BVP_OutputModule():
             dir_latent = torch.cat(pca_rank_latent)
             images = self.config.pipe.decode_latent(dir_latent)
             image_list = [img.unsqueeze(0) for img in images]
-
             image_list = state.image_proc.normalize_image_batch(image_list)
             state.io_unit.save_images(image_list, f'from_{image_path[:-4]}_pca_rank_{rank}')
 
