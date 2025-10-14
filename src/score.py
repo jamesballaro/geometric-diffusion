@@ -4,28 +4,17 @@ from geodesic import SphericalCubicSpline, BisectionSampler
 from geodesic import norm_fix, norm_fix_batch, o_project, o_project_batch
 
 class ScoreProcessor():
-    def __init__(
-        self,
-        pipe,
-        device,
-        uncond_prompt_embed,
-        neg_prompt_embed,
-        noise_level,
-        grad_batch_size,
-        grad_sample_range,
-        grad_guidance_0,
-        grad_guidance_1
-        ):
+    def __init__(self, pipe, config, state,):
 
         self.pipe = pipe
-        self.device = device
-        self.grad_batch_size = grad_batch_size
-        self.grad_sample_range = grad_sample_range
-        self.uncond_prompt_embed = uncond_prompt_embed 
-        self.neg_prompt_embed = neg_prompt_embed
-        self.grad_guidance_0 = grad_guidance_0
-        self.grad_guidance_1 = grad_guidance_1
-        self.time_step = pipe.get_timesteps(noise_level, return_single=True)
+        self.device = config.device
+        self.grad_batch_size = config.grad_args['grad_batch_size']
+        self.grad_sample_range = config.grad_args['grad_sample_range']
+        self.uncond_prompt_embed = state.uncond_prompt_embed 
+        self.neg_prompt_embed = state.neg_prompt_embed
+        self.grad_guidance_0 = config.grad_args['grad_guidance_0']
+        self.grad_guidance_1 = config.grad_args['grad_guidance_1']
+        self.time_step = pipe.get_timesteps(config.noise_level, return_single=True)
 
     def grad_prepare(self, latent):
         range_t = self.grad_sample_range

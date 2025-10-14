@@ -10,21 +10,15 @@ from typing import Dict, Any
 from geodesic import SphericalCubicSpline, BisectionSampler
 from geodesic import norm_fix, norm_fix_batch, o_project, o_project_batch
 from score import ScoreProcessor
-from image_io import ImageProcessor, IO
+from image_io import ImageProcessor
 from bvp_structs import BVPConfig, BVPState
 from bvp_ouptut import BVP_OutputModule
 from bvp_gradient import BVP_GradientModule
 
-"""
-    This file will contain:
-    - text inversion
-    - sphere constraining
-    - gradient calculations
-"""
 class BVPOptimiser():
-    def __init__(self, device, opt_max_iter, opt_lr, lr_scheduler='linear', lr_divide=True):
-        self.opt_max_iter = opt_max_iter
-        self.lr_init = opt_lr
+    def __init__(self, config, opt_max_iter, opt_lr, lr_scheduler='linear', lr_divide=True):
+        self.opt_max_iter = config.bvp_opt_args['opt_max_iter']
+        self.lr_init = config.bvp_opt_args['opt_lr']
         self.lr_scheduler = lr_scheduler
         self.lr_divide = lr_divide
 
@@ -47,6 +41,8 @@ class BVPOptimiser():
 class BVPAlgorithm():
     def __init__(self, config: BVPConfig):
         self.config = config
+        self.state = BVPState()
+
         # Copy all config attributes to self
         for key, value in config.__dict__.items():
             setattr(self, key, value)
@@ -56,46 +52,20 @@ class BVPAlgorithm():
         self.prompt2 = pipe.encode_prompt(config.prompt2)[1].to(device)
         self.uncond_prompt_embed = pipe.encode_prompt(config.uncond_prompt)[1].to(device)
         self.neg_prompt_embed = pipe.encode_prompt(config.neg_prompt)[1].to(device)
-
+    
         self.init_submodules()
 
     def init_submodules(self):
+        self.update_state()
         # Initialize optimiser sub units
         self.sampler = BisectionSampler(self.device, **self.bisection_args)
-        self.score_unit = ScoreProcessor(
-            self.pipe,
-            self.device,
-            self.uncond_prompt_embed,
-            self.neg_prompt_embed,
-            self.noise_level,
-            **self.grad_args
-        )
-        self.optimizer = BVPOptimiser(
-            self.device,
-            **self.bvp_opt_args
-        )
-        self.io_unit = IO(
-            self.output_dir,
-            resolution=self.pipe.resolution,
-            output_separate_images=self.output_separate_images
-            )
-
+        self.score_unit = ScoreProcessor(self.pipe, self.config, self.state)
+        self.optimizer = BVPOptimiser(self.config)
         self.timesteps_out = torch.linspace(0, 1, self.num_output_imgs).to(self.device)
-        self.image_proc = ImageProcessor(
-            self.pipe,
-            self.device,
-            self.guidance_scale,
-            self.noise_level,
-            self.uncond_prompt_embed,
-            self.neg_prompt_embed,
-            self.timesteps_out,
-            use_neg_cfg=self.use_neg_cfg,
-            use_pu_sampling=self.use_pu_sampling,
-            output_start_images=self.output_start_images
-        )
-
-        self.gradient_unit = BVP_GradientModule(self.config)
-        self.bvp_io_unit = BVP_OutputModule(self.config)
+        self.image_proc = ImageProcessor(self.pipe, self.config, self.state,)
+        self.editor = SemanticEditor(self.generator, self.pipe, self.state, self.config)
+        self.bvp_io_unit = BVP_OutputModule(self.pipe, self.editor, self.image_proc, self.state, self.config)
+        self.gradient_unit = BVP_GradientModule(self.bvp_io_unit, self.state, self.config)
 
     # Main functions
     def step(self):
@@ -117,7 +87,7 @@ class BVPAlgorithm():
         A_opt = self.spline(qp, 2)
 
         # Compute gradient
-        grad_all, mean_all_norm, mean_angle = self.gradient_unit(self.state, X_opt, V_opt, A_opt, query_points)
+        grad_all, mean_all_norm, mean_angle = self.gradient_unit(X_opt, V_opt, A_opt, query_points)
 
         # If the acceleration term is too big, we will get pulled away from the geodesic, this just accounts for that by making the optimisation finer
         if grad_all is None:
@@ -168,8 +138,8 @@ class BVPAlgorithm():
         self.image_latent2 = self.pipe.encode_image(self.image_tensor2)
 
         # We start by inverting the prompts
-        self.prompt_embed_opt1 = self.pipe.load_text_inversion(self.prompt1, self.image_latent1, self.test_name, 'A', **self.text_inv_args)
-        self.prompt_embed_opt2 = self.pipe.load_text_inversion(self.prompt2, self.image_latent1, self.test_name, 'B', **self.text_inv_args)
+        self.prompt_embed_opt1 = self.editor.latent_proc.load_text_inversion(self.prompt1, self.image_latent1, self.test_name, 'A', **self.text_inv_args)
+        self.prompt_embed_opt2 = self.editor.latent_proc.load_text_inversion(self.prompt2, self.image_latent1, self.test_name, 'B', **self.text_inv_args)
 
         print("Starting DDIM noising")
         # Then we deterministically noise the latents:
@@ -203,7 +173,7 @@ class BVPAlgorithm():
         self.iter = 0
         self.update_state()
 
-        self.bvp_io_unit.output_spline_images(self.state, 'start')
+        self.bvp_io_unit.output_spline_images('start')
 
         for i in range(self.optimizer.opt_max_iter):
             # Main loop occurs here!
@@ -219,40 +189,38 @@ class BVPAlgorithm():
                 spline_latent =  self.spline(self.timesteps_out)[self.edit_idx]
 
                 # Run the pullback diffusion method to move the latent in semantically meaningful directions
-                self.bvp_io_unit.output_semantic_edit_latent(self.state, spline_latent, 'semantic')
+                self.bvp_io_unit.output_semantic_edit_latent(spline_latent, 'semantic')
 
-                self.bvp_io_unit.output_semantic_edit_input_image(self.state, self.image_path1, 1)
-                self.bvp_io_unit.output_semantic_edit_input_image(self.state, self.image_path2, 2)
+                self.bvp_io_unit.output_semantic_edit_input_image(self.image_path1, 1)
+                self.bvp_io_unit.output_semantic_edit_input_image(self.image_path2, 2)
 
                 # Output (un-edited) images from the spline interpolation
-                self.bvp_io_unit.output_spline_images(self.state, 'final')
+                self.bvp_io_unit.output_spline_images('final')
                 break
             else:
-                self.bvp_io_unit.output_spline_images(self.state, str(self.iter))
+                self.bvp_io_unit.output_spline_images(str(self.iter))
 
             self.update_state()
             torch.cuda.empty_cache()
 
-        self.io_unit.save_optimisation(self.path)
+        self.bvp_io_unit.save_optimisation(self.path)
 
         ts = torch.linspace(0, 1, self.num_output_imgs, device=self.device)
         torch.save(self.spline(ts,1), os.path.join(self.output_dir, 'final_vs.pt'))
 
     def update_state(self):
-        self.state = BVPState(
-            iter=self.iter,
-            image_latent1=self.image_latent1,
-            image_latent2=self.image_latent2,
-            image_tensor1=self.image_tensor1,
-            image_tensor2=self.image_tensor2,
-            prompt_embed_opt1=self.prompt_embed_opt1,
-            prompt_embed_opt2=self.prompt_embed_opt2,
-            uncond_prompt_embed=self.uncond_prompt_embed,
-            neg_prompt_embed=self.neg_prompt_embed,
-            timesteps_out=self.timesteps_out,
-            spline=self.spline,
-            score_unit=self.score_unit,
-            image_proc=self.image_proc,
-            io_unit=self.io_unit,
-            edit_idx=self.edit_idx,
-        )
+        state = self.state  # local alias for readability
+
+        state.iter = self.iter
+        state.image_latent1 = self.image_latent1
+        state.image_latent2 = self.image_latent2
+        state.image_tensor1 = self.image_tensor1
+        state.image_tensor2 = self.image_tensor2
+        state.prompt_embed_opt1 = self.prompt_embed_opt1
+        state.prompt_embed_opt2 = self.prompt_embed_opt2
+        state.uncond_prompt_embed = self.uncond_prompt_embed
+        state.neg_prompt_embed = self.neg_prompt_embed
+        state.timesteps_out = self.timesteps_out
+        state.spline = self.spline
+        state.score_unit = self.score_unit
+        state.edit_idx = self.edit_idx

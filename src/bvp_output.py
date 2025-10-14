@@ -1,14 +1,24 @@
 from bvp_structs import BVPConfig, BVPState
 
 class BVP_OutputModule():
-    def __init__(self, config: BVPConfig):
+    def __init__(self, pipe, editor, state: BVPState, config: BVPConfig):
+        self.pipe = pipe
+        self.editor = editor
+        self.image_proc = image_proc
+        self.state = state
         self.config = config
+
+        self.output_dir = config.output_dir
+        self.output_separate_images = config.output_separate_images
+        self.resolution = config.resolution
+        self.grad_analysis_out = config.grad_analysis_out
+
     # Main functions
-    def output_spline_images(self, state: BVPState, out_name):
+    def output_spline_images(self, out_name):
         """
         Decide whether to save the BVP image sequence based on iteration number and settings.
         """
-        it = state.iter
+        it = self.state.iter
         # Conditions for saving
         is_start = (it == 0 and self.config.output_start_images)
         is_interval = (self.config.output_interval > 0 and it > 0 and it % self.config.output_interval == 0)
@@ -22,142 +32,68 @@ class BVP_OutputModule():
         elif is_final: print("Output final image sequence")
 
         # Generate
-        images = state.image_proc.produce_images(
-            state.spline,
-            state.prompt_embed_opt1, state.prompt_embed_opt2,
-            state.image_tensor1, state.image_tensor2,
+        images = self.image_proc.produce_images(
+            self.state.spline,
+            self.state.prompt_embed_opt1, self.state.prompt_embed_opt2,
+            self.state.image_tensor1, self.state.image_tensor2,
             out_name
         )
 
         # Save
         image_list = [img for img in images]
-        state.io_unit.save_images(image_list, out_name, edit_idx=state.edit_idx)
+        self.save_images(image_list, out_name, edit_idx=self.state.edit_idx)
 
-    def output_semantic_edit_latent(self, state: BVPState,  latent, out_name):
-        """
-        This function uses the local encoder pullback to generate a latent space image sequence
-        """
+    def output_semantic_edit_latent(self, latent):
 
-        latent_dim = int(self.config.resolution[0] / 8)
-        # latents are noised to t = 0.6 * T
-        latent = latent.reshape(-1, 4, latent_dim, latent_dim)
-
-        edit_prompt = self.config.semantic_edit_args["edit_prompt"]
-        edit_prompt_embed = self.config.pipe.encode_prompt(edit_prompt)[1].to(self.device) #TODO device
-
-        interp_prompt = state.spline.lerp(state.timesteps_out, state.prompt_embed_opt1, state.prompt_embed_opt2)
-
-        # Help with reverse CFG for semantic editing
-        interp_prompt = interp_prompt + edit_prompt_embed.expand_as(interp_prompt)
-
-        denoised_edited_latents = self.config.pipe.run_encoder_pullback_image_latent(
-            self.config,
-            latent,
-            state.uncond_prompt_embed,
-            state.neg_prompt_embed,
-            interp_prompt[state.edit_idx:state.edit_idx+1,:,:],
-            edit_prompt,
-            output_dir=self.output_dir,
-        )
+        denoised_edited_latents = self.editor.calculate_semantic_edit_latent(latent, out_name)
 
         # Save images
         for pca_rank_latent in denoised_edited_latents:
             dir_latent = torch.cat(pca_rank_latent)
 
-            images = self.config.pipe.decode_latent(dir_latent)
+            images = self.pipe.decode_latent(dir_latent)
             image_list = [img.unsqueeze(0) for img in images]
-            image_list = state.image_proc.normalize_image_batch(image_list)
+            image_list = self.image_proc.normalize_image_batch(image_list)
 
-        state.io_unit.save_images(image_list, out_name)
+        self.save_images(image_list, out_name)
 
         return
 
-    def output_semantic_edit_input_image(self, state: BVPState, image_path, select):
-        """
-        This function circumvents the optimsation and uses algorithm 2 to semantically edit the input image
-        """
-        image_tensor = self.config.pipe.preprocess_image(image_path).to(self.config.device)
-        image_latent = self.config.pipe.encode_image(image_tensor)
+    def output_semantic_edit_input_image(self, image_path, select):
 
-        full_noise_level = 1
-        end_timestep =  self.config.pipe.get_timesteps(self.config.noise_level, return_single=True) # e.g 400
-
-
-        if select == 1:
-            prompt_embed = state.prompt_embed_opt1
-        else:
-            prompt_embed = state.prompt_embed_opt2
-
-        edit_prompt = self.config.semantic_edit_args["edit_prompt"]
-        edit_prompt_embed = self.config.pipe.encode_prompt(edit_prompt)[1].to(self.config.device)
-
-        interp_prompt = prompt_embed + edit_prompt
-
-        noised_latent_T = self.config.pipe.ddim_forward(
-            full_noise_level,
-            self.config.guidance_scale,
-            image_latent,
-            state.uncond_prompt_embed,
-            prompt_embed,
-            state.neg_prompt_embed,
-            self.config.use_neg_cfg
-        )
-
-        ddim_backward_fn = functools.partial(
-            self.config.pipe.ddim_backward,
-            guidance_scale=self.config.guidance_scale,
-            neg_prompt_embed=state.neg_prompt_embed,
-            uncond_prompt_embed=state.uncond_prompt_embed,
-            prompt_embed=prompt_embed,
-            eta=0.0,
-            use_neg_cfg=self.config.use_neg_cfg,
-        )
-
-        noised_latent_t = ddim_backward_fn(
-            noise_level=1,
-            latent=noised_latent_T,
-            end_timestep=end_timestep,
-        )
-
-        denoised_edited_latents = self.config.pipe.run_edit_local_encoder_pullback_zt(
-            self.config
-            noised_latent_t,
-            noised_latent_T,
-            0,
-            backward_fn=ddim_backward_fn,
-            output_dir=self.config.output_dir
-        )
+        denoised_edited_latents = self.editor.calculate_semantic_edit_input_image(image_path, select)
 
         # Save images
         for rank, pca_rank_latent in enumerate(denoised_edited_latents):
             dir_latent = torch.cat(pca_rank_latent)
-            images = self.config.pipe.decode_latent(dir_latent)
+            images = self.pipe.decode_latent(dir_latent)
             image_list = [img.unsqueeze(0) for img in images]
-            image_list = state.image_proc.normalize_image_batch(image_list)
-            state.io_unit.save_images(image_list, f'from_{image_path[:-4]}_pca_rank_{rank}')
+            image_list = self.image_proc.normalize_image_batch(image_list)
+            self.save_images(image_list, f'from_{image_path[:-4]}_pca_rank_{rank}')
 
         return
 
-    def output_interp_images(self, state: BVPState,  method):
+    def output_interp_images(self,  method):
         """
         This functions uses standard linear interpolation to generate a continuous image sequence
         """"
         # Then we deterministically noise the latents:
-        noised_latent1 = self.config.pipe.ddim_forward(self.config.noise_level, self.config.guidance_scale, state.image_latent1, state.uncond_prompt_embed, state.prompt_embed_opt1, state.neg_prompt_embed, self.config.use_neg_cfg)
-        noised_latent2 = self.config.pipe.ddim_forward(self.config.noise_level, self.config.guidance_scale, state.image_latent2, state.uncond_prompt_embed, state.prompt_embed_opt2, state.neg_prompt_embed, self.config.use_neg_cfg)
+        noised_latent1 = self.editor.latent_proc.ddim_forward(self.config.noise_level, self.config.guidance_scale, self.state.image_latent1, self.state.uncond_prompt_embed, self.state.prompt_embed_opt1, self.state.neg_prompt_embed, self.config.use_neg_cfg)
+        noised_latent2 = self.editor.latent_proc.ddim_forward(self.config.noise_level, self.config.guidance_scale, self.state.image_latent2, self.state.uncond_prompt_embed, self.state.prompt_embed_opt2, self.state.neg_prompt_embed, self.config.use_neg_cfg)
 
         interp_lat =[]
         if method == 'slerp':
             for a in self.timesteps_out:
-                interp_lat.append(state.spline.slerp(state.timesteps_out, noised_latent1, noised_latent2, a))
+                interp_lat.append(self.state.spline.slerp(self.state.timesteps_out, noised_latent1, noised_latent2, a))
         else:
-            interp_lat = state.spline.lerp(state.timesteps_out, noised_latent1, noised_latent2)
+            interp_lat = self.state.spline.lerp(self.state.timesteps_out, noised_latent1, noised_latent2)
 
-        interp_prompt = state.spline.lerp(state.timesteps_out, state.prompt_embed_opt1, state.prompt_embed_opt2)
+        interp_prompt = self.state.spline.lerp(self.state.timesteps_out, self.state.prompt_embed_opt1, self.state.prompt_embed_opt2)
         images=[]
+        
         for i in range(self.config.num_output_imgs):
             print(f"\nImage {i+1}/{self.config.num_output_imgs} | noise_level: {self.config.noise_level} | guidance_scale: {self.config.guidance_scale} | using negative cfg: {self.config.use_neg_cfg}| ")
-            latent = self.config.pipe.ddim_backward(
+            latent = self.editor.latent_proc.ddim_backward(
                 self.config.noise_level,
                 self.config.guidance_scale,
                 interp_lat[i:i+1],
@@ -168,9 +104,98 @@ class BVP_OutputModule():
                 use_neg_cfg=self.config.use_neg_cfg
             )
 
-            image = self.config.pipe.decode_latent(latent)
+            image = self.pipe.decode_latent(latent)
             images.append(image)
-        images = state.image_proc.normalize_image_batch(images)
+        images = self.image_proc.normalize_image_batch(images)
 
-        state.io_unit.save_images(images, f'{method}_{self.config.test_name}')
+        self.save_images(images, f'{method}_{self.config.test_name}')
         return
+
+    def grad_analysis(self, B, t_opt, iter, grad_term1, grad_term2, grad_all):
+        """
+        Analyze and log gradient norms and angles between gradient components.
+        """
+        # Flatten to ensure consistent shape [batch, features]
+        grad_term1 = grad_term1.reshape(B, -1)
+        grad_term2 = grad_term2.reshape(B, -1)
+        grad_all = grad_all.reshape(B, -1)
+
+        # Cosine similarity → angle between term1 and term2
+        cos_sim = torch.nn.CosineSimilarity(dim=1, eps=1e-8)
+        cos_vals = cos_sim(grad_term1, grad_term2)
+        angles = torch.arccos(cos_vals) * 180 / torch.pi  # in degrees
+
+        # Norms
+        norm1 = torch.norm(grad_term1, dim=-1)
+        norm2 = torch.norm(grad_term2, dim=-1)
+        norm_all = torch.norm(grad_all, dim=-1)
+
+        # Mean stats (for return)
+        mean_all_norm = norm_all.mean().item()
+        mean_norm1 = norm1.mean().item()
+        mean_norm2 = norm2.mean().item()
+        mean_angle = angles.mean().item()
+
+        # If not writing logs, just return means
+        if not self.grad_analysis_out:
+            return mean_all_norm, mean_norm1, mean_norm2, mean_angle
+
+        # Otherwise, round and write per-sample values to file
+        def to_list(tensor):
+            return [round(x.item(), 4) for x in tensor]
+
+        log_data = {
+            "t": to_list(t_opt),
+            "g_t1": to_list(norm1),
+            "g_t2": to_list(norm2),
+            "g_all": to_list(norm_all),
+            "g_angle": to_list(angles),
+        }
+
+        log_path = os.path.join(self.output_dir, 'analysis.txt')
+        with open(self.output_dir, 'a') as f:
+            f.write(f"iter:{iter}\n")
+            for key, values in log_data.items():
+                f.write(f"{key}:{values}\n")
+            f.write("\n")
+
+        return mean_all_norm, mean_norm1, mean_norm2, mean_angle
+
+    def save_images(self, image_list, out_name, edit_idx=None):
+        if self.output_separate_images:
+            for i, image in enumerate(image_list):
+                if out_name == 'start':
+                    image.save(os.path.join(self.output_dir, 'start_imgs',  f'{i:02d}.png'))
+                else:
+                    image.save(os.path.join(self.output_dir, 'out_imgs',  f'{i:02d}.png'))
+
+        image_long = self.display_alongside(image_list, edit_idx)
+        image_path = os.path.join(self.output_dir, f'long_{out_name}.png')
+        image_long.save(image_path)
+        print(f'Image sequence saved to {self.output_dir}long_{out_name}.png')
+        return image_list
+
+    def display_alongside(self, image_list, edit_idx=None, padding=10, frame_color=(255, 255, 255), edit_color=(255, 0, 0), edit_width=10):
+        padded_width = self.resolution[0] + 2 * padding
+        padded_height = self.resolution[1] + 2 * padding
+        res = Image.new("RGB", (padded_width * len(image_list), padded_height), frame_color)
+        draw = ImageDraw.Draw(res)
+
+        for i, image in enumerate(image_list):
+            x_offset = i * padded_width + padding
+            y_offset = padding
+            img_resized = image.resize(self.resolution)
+            res.paste(img_resized, (x_offset, y_offset))
+
+            # Draw a border if the image is edited
+            if edit_idx:
+                if i == edit_idx:
+                    rect_start = (x_offset - edit_width//2, y_offset - edit_width//2)
+                    rect_end = (x_offset + self.resolution[0] + edit_width//2, y_offset + self.resolution[1] + edit_width//2)
+                    draw.rectangle([rect_start, rect_end], outline=edit_color, width=edit_width)
+
+        return res
+
+    def save_optimisation(self, path):
+        torch.save(path, os.path.join(self.output_dir, 'opt_points.pth'))
+        print(f'Optimisation points saved to {self.output_dir}opt_points.pth')

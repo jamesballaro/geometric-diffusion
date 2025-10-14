@@ -43,7 +43,6 @@ bisection_args:
 
 semantic_edit_args:
   image_idx: 2
-  op: "mid"
   vis_num: 2
   vis_num_pc: 2
   pca_rank: 3

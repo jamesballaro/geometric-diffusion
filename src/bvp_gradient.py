@@ -1,20 +1,23 @@
 from bvp_structs import BVPConfig
 
 class BVP_GradientModule():
-    def __init__(self, config: BVPConfig):
+    def __init__(self, bvp_io_unit, state: BVPState, config: BVPConfig):
+        self.bvp_io_unit = bvp_io_unit
         self.config = config
+        self.state = state
+
     # Main functions
-    def __call__(self, state: BVPState, X, V, A, t_opt) :
+    def __call__(self, X, V, A, t_opt) :
         # Latent downsizing factor for SD2.1 = 8
         latent_dim = int(self.config.resolution[0] / 8)
 
         latents = X.reshape(-1, 4, latent_dim, latent_dim)
 
         # Linear interpolation of text prompt-embeddings
-        prompt_embed = state.spline.lerp(t_opt, state.prompt_embed_opt1, state.prompt_embed_opt2)
+        prompt_embed = self.state.spline.lerp(t_opt, self.state.prompt_embed_opt1, self.state.prompt_embed_opt2)
 
         # Compute score functions ( ∇ log p) from latent and prompt embedding
-        scores = state.score_unit.grad_compute_batch(latents, prompt_embed)
+        scores = self.state.score_unit.grad_compute_batch(latents, prompt_embed)
 
         B, C, H, W = scores.shape
 
@@ -38,7 +41,7 @@ class BVP_GradientModule():
         grad_all = -(term1 + term2)
 
         # Grad analysis
-        mean_all_norm, mean_norm1, mean_norm2, mean_angle = state.io_unit.grad_analysis(B, t_opt, self.iter, term1, term2, grad_all)
+        mean_all_norm, mean_norm1, mean_norm2, mean_angle = self.bvp_io_unit.grad_analysis(B, t_opt, self.iter, term1, term2, grad_all)
 
         if mean_norm1 < mean_norm2:
             # This is a heuristic, if the acceleration term too big, it will go to the wrong direction

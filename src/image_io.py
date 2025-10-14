@@ -9,32 +9,20 @@ To process all the outputs from the BVP algorithm
 """
 
 class ImageProcessor():
-    def __init__(self,
-        pipe,
-        device,
-        guidance_scale,
-        noise_level,
-        uncond_prompt_embed,
-        neg_prompt_embed,
-        timesteps_out,
-        use_neg_cfg=True,
-        output_interval=-1,
-        use_pu_sampling=True,
-        output_start_images=True,
-        ):
+    def __init__(self, pipe, config, state):
 
         self.pipe = pipe
-        self.device = device
-        self.guidance_scale = guidance_scale
-        self.noise_level = noise_level
-        self.uncond_prompt_embed = uncond_prompt_embed
-        self.neg_prompt_embed = neg_prompt_embed
-        self.use_neg_cfg = use_neg_cfg
-        self.output_interval = output_interval
-        self.use_pu_sampling = use_pu_sampling
-        self.output_start_images = output_start_images
+        self.device = config.device
+        self.guidance_scale = config.guidance_scale
+        self.noise_level = config.noise_level
+        self.uncond_prompt_embed = state.uncond_prompt_embed
+        self.neg_prompt_embed = state.neg_prompt_embed
+        self.use_neg_cfg = config.use_neg_cfg
+        self.output_interval = config.output_interval
+        self.use_pu_sampling = config.use_pu_sampling
+        self.output_start_images = config.output_start_images
 
-        self.timesteps_out = timesteps_out
+        self.timesteps_out = state.timesteps_out
 
     def decode_spline_latents(self, latent_spline, interp_prompt):
         assert latent_spline.shape[0] == interp_prompt.shape[0]
@@ -116,106 +104,3 @@ class ImageProcessor():
         for image_tensor in image_list:
             images.append(self.normalize_image(image_tensor))
         return images
-
-
-class IO():
-    def __init__(
-        self,
-        output_dir,
-        resolution,
-        output_separate_images=False,
-        grad_analysis_out=False,
-        ):
-        self.output_dir = output_dir
-        self.output_separate_images = output_separate_images
-        self.resolution = resolution
-        self.grad_analysis_out = grad_analysis_out
-
-    def grad_analysis(self, B, t_opt, iter, grad_term1, grad_term2, grad_all):
-        """
-        Analyze and log gradient norms and angles between gradient components.
-        """
-        # Flatten to ensure consistent shape [batch, features]
-        grad_term1 = grad_term1.reshape(B, -1)
-        grad_term2 = grad_term2.reshape(B, -1)
-        grad_all = grad_all.reshape(B, -1)
-
-        # Cosine similarity → angle between term1 and term2
-        cos_sim = torch.nn.CosineSimilarity(dim=1, eps=1e-8)
-        cos_vals = cos_sim(grad_term1, grad_term2)
-        angles = torch.arccos(cos_vals) * 180 / torch.pi  # in degrees
-
-        # Norms
-        norm1 = torch.norm(grad_term1, dim=-1)
-        norm2 = torch.norm(grad_term2, dim=-1)
-        norm_all = torch.norm(grad_all, dim=-1)
-
-        # Mean stats (for return)
-        mean_all_norm = norm_all.mean().item()
-        mean_norm1 = norm1.mean().item()
-        mean_norm2 = norm2.mean().item()
-        mean_angle = angles.mean().item()
-
-        # If not writing logs, just return means
-        if not self.grad_analysis_out:
-            return mean_all_norm, mean_norm1, mean_norm2, mean_angle
-
-        # Otherwise, round and write per-sample values to file
-        def to_list(tensor):
-            return [round(x.item(), 4) for x in tensor]
-
-        log_data = {
-            "t": to_list(t_opt),
-            "g_t1": to_list(norm1),
-            "g_t2": to_list(norm2),
-            "g_all": to_list(norm_all),
-            "g_angle": to_list(angles),
-        }
-
-        log_path = os.path.join(self.output_dir, 'analysis.txt')
-        with open(self.output_dir, 'a') as f:
-            f.write(f"iter:{iter}\n")
-            for key, values in log_data.items():
-                f.write(f"{key}:{values}\n")
-            f.write("\n")
-
-        return mean_all_norm, mean_norm1, mean_norm2, mean_angle
-
-    def save_images(self, image_list, out_name, edit_idx=None):
-        if self.output_separate_images:
-            for i, image in enumerate(image_list):
-                if out_name == 'start':
-                    image.save(os.path.join(self.output_dir, 'start_imgs',  f'{i:02d}.png'))
-                else:
-                    image.save(os.path.join(self.output_dir, 'out_imgs',  f'{i:02d}.png'))
-
-        image_long = self.display_alongside(image_list, edit_idx)
-        image_path = os.path.join(self.output_dir, f'long_{out_name}.png')
-        image_long.save(image_path)
-        print(f'Image sequence saved to {self.output_dir}long_{out_name}.png')
-        return image_list
-
-    def display_alongside(self, image_list, edit_idx=None, padding=10, frame_color=(255, 255, 255), edit_color=(255, 0, 0), edit_width=10):
-        padded_width = self.resolution[0] + 2 * padding
-        padded_height = self.resolution[1] + 2 * padding
-        res = Image.new("RGB", (padded_width * len(image_list), padded_height), frame_color)
-        draw = ImageDraw.Draw(res)
-
-        for i, image in enumerate(image_list):
-            x_offset = i * padded_width + padding
-            y_offset = padding
-            img_resized = image.resize(self.resolution)
-            res.paste(img_resized, (x_offset, y_offset))
-
-            # Draw a border if the image is edited
-            if edit_idx:
-                if i == edit_idx:
-                    rect_start = (x_offset - edit_width//2, y_offset - edit_width//2)
-                    rect_end = (x_offset + self.resolution[0] + edit_width//2, y_offset + self.resolution[1] + edit_width//2)
-                    draw.rectangle([rect_start, rect_end], outline=edit_color, width=edit_width)
-
-        return res
-
-    def save_optimisation(self, path):
-        torch.save(path, os.path.join(self.output_dir, 'opt_points.pth'))
-        print(f'Optimisation points saved to {self.output_dir}opt_points.pth')
