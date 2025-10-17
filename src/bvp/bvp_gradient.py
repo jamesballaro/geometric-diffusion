@@ -1,4 +1,4 @@
-from bvp_structs import BVPConfig
+from .bvp_structs import BVPConfig
 
 class BVP_GradientModule():
     def __init__(self, bvp_io_unit, state: BVPState, config: BVPConfig):

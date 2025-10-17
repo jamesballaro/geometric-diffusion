@@ -1,61 +1,60 @@
-# --- Core Torch stack ---
+# Core Torch stack — pin only if necessary
 torch==2.3.0
-torchvision==0.18.0
-torchaudio==2.3.0
-torchsde==0.2.6
-torchinfo==1.7.0
+torchvision
+torchaudio
+torchsde
+torchinfo
 
-# comfyui dependencies
-einops==0.8.1
-transformers==4.43.4
-tokenizers==0.19.1
-sentencepiece==0.2.1
-safetensors==0.4.3
-aiohttp==3.12.15
-yarl==1.20.1
-pyyaml==6.0.1
-Pillow==10.4.0
-scipy==1.10.1
-tqdm==4.66.4
-psutil==7.1.0
-alembic==1.16.5
-SQLAlchemy==2.0.43
+# Transformers / Diffusers core
+transformers
+tokenizers>=0.19,<0.24
+sentencepiece
+safetensors
+diffusers>=0.32.0
+huggingface-hub>=0.25.1,<1.0
+accelerate
 
-# non essential dependencies
-kornia==0.8.1
-spandrel==0.4.1
-soundfile==0.12.1
-av==15.1.0
-pydantic==2.11.9
-pydantic-settings==2.10.1
+# Scientific / numeric stack
+numpy
+scipy
+pandas
+tqdm
+psutil
 
-# SDXL training loop requirements
-datasets==4.1.1
-multiprocess==0.70.16
+# Image / Vision
+Pillow
+einops
+kornia
+spandrel
+av
+
+# Audio
+soundfile
+
+# Model training / data handling
+datasets
+multiprocess
 bitsandbytes
 
-# extra
-comfy-cli==1.5.1
+# Infra / configuration
+aiohttp
+yarl
 pyyaml
+pydantic
+pydantic-settings
+SQLAlchemy
+alembic
 
-# flite dependencies
-diffusers==0.29.2
-jsonargparse==4.41.0
-pandas==2.2.2
-protobuf==5.27.2
-rich==14.1.0
-gradio==5.46.1
-
-# ComfyUI Manager
-GitPython==3.1.45
-PyGithub==2.8.1
-matrix-client==0.4.0
-huggingface-hub==0.34.0
-typer==0.19.1
-typing-extensions==4.15.0
-toml==0.10.2
-uv==0.8.19
-chardet==5.2.0
-
-# numpy (pinned to torch 2.3 compatibility)
-numpy==1.26.4
+# CLI / management / UI
+gradio
+typer
+rich
+comfy-cli
+GitPython
+PyGithub
+matrix-client
+jsonargparse
+toml
+uv
+chardet
+typing-extensions

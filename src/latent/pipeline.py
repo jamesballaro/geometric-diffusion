@@ -33,6 +33,8 @@ from transformers import (
     CLIPVisionModelWithProjection,
 )
 
+from ..latent.semantic import get_h, local_encoder_pullback_zt
+
 class CustomStableDiffusionPipeline(StableDiffusionPipeline):
     def __init__(self,
         vae: AutoencoderKL,

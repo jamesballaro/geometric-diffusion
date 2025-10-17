@@ -4,6 +4,7 @@ import math
 import json
 import types
 import time
+import functools
 from tqdm import tqdm
 
 import torch
@@ -15,7 +16,7 @@ import torchvision.utils as tvu
 import numpy as np
 from einops import rearrange, einsum
 
-from latents import LatentProcessor
+from .latents import LatentProcessor
 
 class SemanticEditor():
     def __init__(self, generator, pipe, state, config):
@@ -134,7 +135,7 @@ class SemanticEditor():
             f"block_idx: {block_idx}, "
             f"vis_num: {config.semantic_edit_args['vis_num']}, "
             f"vis_num_pc: {config.semantic_edit_args['vis_num_pc']}, "
-            f"pca_rank: {config.semantic_edit_args['pca_rank']},
+            f"pca_rank: {config.semantic_edit_args['pca_rank']}, "
             f"edit_prompt: {config.semantic_edit_args['edit_prompt']}, "
             f"x_guidance_steps: {config.semantic_edit_args['x_guidance_step']}"
         )
@@ -145,10 +146,10 @@ class SemanticEditor():
             self.edit_prompt_emb = self.pipe.encode_prompt(edit_prompt)[0]
 
         # get local basis
-        local_basis_name = f'local_basis-_{idx}-{noise_level}T-"{edit_prompt}"-{op}-block_{block_idx}-seed_{seed}'
+        local_basis_name = f'local_basis-_{idx}-{self.config.noise_level}T-"{edit_prompt}"-block_{block_idx}-seed_{seed}'
 
 
-        save_dir = f'./inputs/local_encoder_pullback_stable_diffusion-dataset_-num_steps_{num_steps}-pca_rank_{pca_rank}'
+        save_dir = f'./inputs/local_encoder_pullback_stable_diffusion-dataset_-num_steps_{num_steps}-pca_rank_{config.semantic_edit_args['pca_rank']}'
         os.makedirs(save_dir, exist_ok=True)
 
         u_path = os.path.join(save_dir, 'u-' + local_basis_name + '.pt')
@@ -346,12 +347,12 @@ class SemanticEditor():
         # mid
         sample = self.mid_block(sample, emb, encoder_hidden_states=encoder_hidden_states)
         if (op == 'mid') & (block_idx == 0):
-            if verbose:
-                print(f'op : {op}, block_idx : {block_idx}, return h.shape : {sample.shape}')
+            # if verbose:
+            #     print(f'op : {op}, block_idx : {block_idx}, return h.shape : {sample.shape}')
             return sample
 
 
-        raise ValueError(f'(op, block_idx) = ({op, block_idx}) is not valid')
+        raise ValueError(f'(op, block_idx) = ({block_idx}) is not valid')
 
 # monkey patch (local method)
     def local_encoder_pullback_zt(

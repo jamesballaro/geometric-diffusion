@@ -4,10 +4,6 @@ from PIL import Image, ImageDraw
 import os
 from torchvision import transforms
 
-"""
-To process all the outputs from the BVP algorithm
-"""
-
 class ImageProcessor():
     def __init__(self, pipe, config, state):
 
@@ -70,9 +66,6 @@ class ImageProcessor():
 
             print('Perceptual Uniform sampling ...')
             scheduler = Scheduler(self.pipe.device)
-
-            # images_pt = [transforms.ToTensor()(image).unsqueeze(0)
-            #                     for image in images]
 
             images_pt = [image.to(self.pipe.device) for image in images]
 

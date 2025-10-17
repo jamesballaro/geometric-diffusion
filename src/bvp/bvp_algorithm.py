@@ -7,13 +7,15 @@ from tqdm import tqdm
 from dataclasses import dataclass
 from typing import Dict, Any
 
-from geodesic import SphericalCubicSpline, BisectionSampler
-from geodesic import norm_fix, norm_fix_batch, o_project, o_project_batch
-from score import ScoreProcessor
-from image_io import ImageProcessor
-from bvp_structs import BVPConfig, BVPState
-from bvp_ouptut import BVP_OutputModule
-from bvp_gradient import BVP_GradientModule
+from .bvp_structs import BVPConfig, BVPState
+from .bvp_output import BVP_OutputModule
+from .bvp_gradient import BVP_GradientModule
+
+from ..grad.geodesic import SphericalCubicSpline, BisectionSampler
+from ..grad.geodesic import norm_fix, norm_fix_batch, o_project, o_project_batch
+from ..grad.score import ScoreProcessor
+from ..image.image_io import ImageProcessor
+from ..latent.semantic import SemanticEditor
 
 class BVPOptimiser():
     def __init__(self, config, opt_max_iter, opt_lr, lr_scheduler='linear', lr_divide=True):
@@ -39,7 +41,8 @@ class BVPOptimiser():
         return cur_lr
 
 class BVPAlgorithm():
-    def __init__(self, config: BVPConfig):
+    def __init__(self, pipe, config: BVPConfig):
+        self.pipe = pipe
         self.config = config
         self.state = BVPState()
 
@@ -48,10 +51,10 @@ class BVPAlgorithm():
             setattr(self, key, value)
 
         # Process prompts
-        self.prompt1 = pipe.encode_prompt(config.prompt1)[1].to(device)
-        self.prompt2 = pipe.encode_prompt(config.prompt2)[1].to(device)
-        self.uncond_prompt_embed = pipe.encode_prompt(config.uncond_prompt)[1].to(device)
-        self.neg_prompt_embed = pipe.encode_prompt(config.neg_prompt)[1].to(device)
+        self.prompt1 = pipe.encode_prompt(config.prompt1)[1].to(config.device)
+        self.prompt2 = pipe.encode_prompt(config.prompt2)[1].to(config.device)
+        self.uncond_prompt_embed = pipe.encode_prompt(config.uncond_prompt)[1].to(config.device)
+        self.neg_prompt_embed = pipe.encode_prompt(config.neg_prompt)[1].to(config.device)
     
         self.init_submodules()
 

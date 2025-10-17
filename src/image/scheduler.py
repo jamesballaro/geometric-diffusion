@@ -1,5 +1,3 @@
-# Code taken from https://github.com/Kevin-thu/DiffMorpher
-# Perceptual uniform distance sampling after finded the path
 import bisect
 import torch
 import torch.nn.functional as F

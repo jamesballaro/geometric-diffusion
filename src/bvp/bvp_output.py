@@ -1,7 +1,7 @@
-from bvp_structs import BVPConfig, BVPState
+from .bvp_structs import BVPConfig, BVPState
 
 class BVP_OutputModule():
-    def __init__(self, pipe, editor, state: BVPState, config: BVPConfig):
+    def __init__(self, pipe, editor, image_proc, state: BVPState, config: BVPConfig):
         self.pipe = pipe
         self.editor = editor
         self.image_proc = image_proc

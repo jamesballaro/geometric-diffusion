@@ -14,25 +14,6 @@ from tqdm import tqdm
 from PIL import Image
 from einops import rearrange, einsum
 
-from diffusers import (
-    StableDiffusionPipeline,
-    DDIMScheduler,
-    UNet2DConditionModel,
-    AutoencoderKL,
-)
-from diffusers.schedulers import KarrasDiffusionSchedulers
-from diffusers.models.attention_processor import AttnProcessor
-from diffusers.pipelines.stable_diffusion.safety_checker import (
-    StableDiffusionSafetyChecker,
-)
-
-from transformers import (
-    CLIPTextModel,
-    CLIPTokenizer,
-    CLIPFeatureExtractor,
-    CLIPImageProcessor,
-    CLIPVisionModelWithProjection,
-)
 
 class LatentProcessor():
     def __init__(self, pipe, device):

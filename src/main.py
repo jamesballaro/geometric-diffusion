@@ -1,10 +1,12 @@
-from pipeline import CustomStableDiffusionPipeline
-from args_parser import parse_args
-from bvp_algorithm import BVPAlgorithm
-from diffusers import StableDiffusionPipeline, DDIMScheduler, UNet2DConditionModel
 import torch
 import os
 import yaml
+
+from diffusers import StableDiffusionPipeline, DDIMScheduler, UNet2DConditionModel
+
+from .args_parser import parse_args
+from .latent.pipeline import CustomStableDiffusionPipeline
+from .bvp.bvp_algorithm import BVPAlgorithm
 
 def main(args):
     device = torch.device("cuda")
@@ -31,7 +33,6 @@ def main(args):
     })
 
     config = BVPConfig(**cfg_dict)
-    # interpolation = BVPAlgorithm(device, pipe, config)
     interpolation = BVPAlgorithm(config)
     
     interpolation.init()

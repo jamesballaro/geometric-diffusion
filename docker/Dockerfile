@@ -26,15 +26,11 @@ RUN apt-get update && apt-get -y upgrade && \
     python -m pip install --upgrade pip && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency files into container
-COPY requirements.txt /opt/src/
-COPY vfx_deps.sh /opt/src/
+RUN pip install --upgrade pip wheel setuptools
 
-# Install custom VFX dependencies (Imath, OpenEXR, OCIO, OIIO, etc.)
-RUN chmod +x /opt/src/vfx_deps.sh && \
-    stdbuf -oL -eL bash -x /opt/src/vfx_deps.sh
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+    torch==2.3.0 torchvision==0.18.0 torchaudio==2.3.0
 
-RUN pip install --no-cache-dir -r /opt/src/requirements.txt
-
-# Default run command: verify PyTorch + CUDA
-# CMD ["python3", "-c", "import torch; print(torch.__version__); print(torch.cuda.is_available())"]
+# Install remaining dependencies
+COPY requirements.txt /opt/src/requirements.txt
+RUN pip install --no-cache-dir --no-deps -r /opt/src/requirements.txt

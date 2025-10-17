@@ -1,7 +1,7 @@
 import torch
 
-from geodesic import SphericalCubicSpline, BisectionSampler
-from geodesic import norm_fix, norm_fix_batch, o_project, o_project_batch
+from .geodesic import SphericalCubicSpline, BisectionSampler
+from .geodesic import norm_fix, norm_fix_batch, o_project, o_project_batch
 
 class ScoreProcessor():
     def __init__(self, pipe, config, state,):
@@ -10,7 +10,7 @@ class ScoreProcessor():
         self.device = config.device
         self.grad_batch_size = config.grad_args['grad_batch_size']
         self.grad_sample_range = config.grad_args['grad_sample_range']
-        self.uncond_prompt_embed = state.uncond_prompt_embed 
+        self.uncond_prompt_embed = state.uncond_prompt_embed
         self.neg_prompt_embed = state.neg_prompt_embed
         self.grad_guidance_0 = config.grad_args['grad_guidance_0']
         self.grad_guidance_1 = config.grad_args['grad_guidance_1']
@@ -34,11 +34,11 @@ class ScoreProcessor():
             clean_latent = latent
         else:
             clean_latent = (latent - (1-alpha_t_)**0.5 * noise) / (alpha_t_**0.5)
-        
+
         noisy_latent = self.pipe.scheduler.add_noise(clean_latent, noise, rand_t)
 
         return noisy_latent, rand_t
-  
+
     def grad_compute(self, latent, prompt_embed):
 
         assert latent.shape[0] == prompt_embed.shape[0]
@@ -48,13 +48,13 @@ class ScoreProcessor():
         uncond_prompt_embed = self.uncond_prompt_embed.repeat(batch_size, 1, 1)
         neg_prompt_embed = self.neg_prompt_embed.repeat(batch_size, 1, 1)
 
-        latent, t = self.grad_prepare(latent)  
+        latent, t = self.grad_prepare(latent)
 
         grad_c, grad_d = 0, 0
 
         with torch.autocast(device_type='cuda', dtype=torch.float16):
             # Save computation (ep_uncond cancels out if guidance coeffs are equal)
-            if self.grad_guidance_0 == self.grad_guidance_1: 
+            if self.grad_guidance_0 == self.grad_guidance_1:
                 grad_c = -self.pipe.noise_pred(latent, t, prompt_embed)
                 grad_d = self.pipe.noise_pred(latent, t, neg_prompt_embed)
             else:
@@ -67,18 +67,18 @@ class ScoreProcessor():
                 if self.grad_guidance_1 > 0:
                     ep_neg = self.pipe.noise_pred(latent, t, neg_prompt_embed)
                     grad_d = ep_neg - ep_uncond
-            
-        norm_constant = 1/(abs(self.grad_guidance_0)+ abs(self.grad_guidance_1)) 
+
+        norm_constant = 1/(abs(self.grad_guidance_0)+ abs(self.grad_guidance_1))
         grad = norm_constant * (self.grad_guidance_0*grad_c + self.grad_guidance_1*grad_d)
-        return grad 
+        return grad
 
     def grad_compute_batch(self, latents, prompt_embed):
         assert latents.shape[0] == prompt_embed.shape[0]
-        
+
         batch_size = latents.shape[0]
         grad_out = None
-        
-        batch_idx = 0 
+
+        batch_idx = 0
 
         while batch_size > 0:
             #Specific batch size for this iteration (ensures we dont take more batches than there are left)
@@ -89,8 +89,8 @@ class ScoreProcessor():
             grad = self.grad_compute(lats, prompt_embed[batch_idx:batch_idx + sub_bsz,:,:])
 
             grad_out = grad if grad_out is None else torch.cat([grad_out, grad])
-            
+
             batch_size -= sub_bsz
             batch_idx += sub_bsz
 
-        return grad_out 
+        return grad_out

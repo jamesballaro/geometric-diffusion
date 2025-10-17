@@ -2,8 +2,8 @@ from typing import Dict, Any
 from dataclasses import dataclass, field
 import torch
 
-from geodesic import SphericalCubicSpline
-from score import ScoreProcessor
+from ..grad.geodesic import SphericalCubicSpline
+from ..grad.score import ScoreProcessor
 
 @dataclass
 class BVPConfig:
