@@ -105,7 +105,7 @@ class SemanticEditor():
         )
 
         denoised_edited_latents = self.editor.run_edit_local_encoder_pullback_zt(
-            self.config
+            self.config,
             noised_latent_t,
             noised_latent_T,
             0,
@@ -168,7 +168,7 @@ class SemanticEditor():
         # computed local basis
         else:
             print('Run local pullback')
-            u, s, vT = self.pipe.unet.local_encoder_pullback_zt(
+            u, s, vT = self.local_encoder_pullback_zt(
                 sample=latent_t,
                 timestep=t,
                 encoder_hidden_states=self.edit_prompt_emb,

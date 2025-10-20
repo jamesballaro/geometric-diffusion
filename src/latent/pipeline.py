@@ -33,8 +33,6 @@ from transformers import (
     CLIPVisionModelWithProjection,
 )
 
-from ..latent.semantic import get_h, local_encoder_pullback_zt
-
 class CustomStableDiffusionPipeline(StableDiffusionPipeline):
     def __init__(self,
         vae: AutoencoderKL,
@@ -60,20 +58,12 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
         if self.resolution:
             self.latent_dim = int(self.resolution[0] / 8)
 
-        self.init_semantic_unet()
-
     def set_seed(self, seed):
         generator = torch.Generator(device=self.device).manual_seed(seed)
         self.generator = generator
 
     def set_resolution(self, res):
         self.resolution = (res,res)
-
-    def init_semantic_unet(self,):
-        # monkey patch (basic method)
-        self.unet.get_h                        = types.MethodType(get_h, self.unet)
-        self.unet.local_encoder_pullback_zt    = types.MethodType(local_encoder_pullback_zt, self.unet)
-        self.unet.set_attn_processor(AttnProcessor())
 
     def encode_prompt(
         self,
