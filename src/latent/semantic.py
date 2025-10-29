@@ -16,13 +16,14 @@ import torchvision.utils as tvu
 import numpy as np
 from einops import rearrange, einsum
 
-from .latents import LatentProcessor
+from .latents import LatentProcessor, TextInverter
 
 class SemanticEditor():
-    def __init__(self, generator, pipe, state, config):
-        self.generator = generator
+    def __init__(self, pipe, state, config):
+        self.device = config.device
         self.pipe = pipe
-        self.latent_proc = LatentProcessor(self.pipe, self.generator.device)
+        self.latent_proc = LatentProcessor(self.pipe, config.device)
+        self.text_inverter = TextInverter(self.pipe, config.device)
         self.state = state
         self.config = config
 
@@ -32,26 +33,26 @@ class SemanticEditor():
         This function uses the local encoder pullback to generate a latent space image sequence
         """
 
-        latent_dim = int(self.config.resolution[0] / 8)
+        latent_dim = int(self.config.resolution / 8)
         # latents are noised to t = 0.6 * T
         latent = latent.reshape(-1, 4, latent_dim, latent_dim)
 
         edit_prompt = self.config.semantic_edit_args["edit_prompt"]
-        edit_prompt_embed = self.pipe.encode_prompt(edit_prompt)[1].to(self.device) #TODO device
+        edit_prompt_embed = self.pipe.encode_prompt(edit_prompt)[1].to(self.config.device) #TODO device
 
         interp_prompt = self.state.spline.lerp(self.state.timesteps_out, self.state.prompt_embed_opt1, self.state.prompt_embed_opt2)
 
         # Help with reverse CFG for semantic editing
         interp_prompt = interp_prompt + edit_prompt_embed.expand_as(interp_prompt)
 
-        denoised_edited_latents = self.editor.run_encoder_pullback_image_latent(
+        denoised_edited_latents = self.run_encoder_pullback_image_latent(
             self.config,
             latent,
             self.state.uncond_prompt_embed,
             self.state.neg_prompt_embed,
             interp_prompt[self.state.edit_idx:self.state.edit_idx+1,:,:],
+            self.config.semantic_edit_args,
             edit_prompt,
-            output_dir=self.output_dir,
         )
 
         return denoised_edited_latents
@@ -61,7 +62,7 @@ class SemanticEditor():
         This function circumvents the optimsation and uses algorithm 2 to semantically edit the input image
         """
         
-        image_tensor = self.pipe.preprocess_image(image_path).to(self.config.device)
+        image_tensor = self.pipe.preprocess_image(image_path).to(self.device)
         image_latent = self.pipe.encode_image(image_tensor)
 
         full_noise_level = 1
@@ -74,11 +75,11 @@ class SemanticEditor():
             prompt_embed = self.state.prompt_embed_opt2
 
         edit_prompt = self.config.semantic_edit_args["edit_prompt"]
-        edit_prompt_embed = self.pipe.encode_prompt(edit_prompt)[1].to(self.config.device)
+        edit_prompt_embed = self.pipe.encode_prompt(edit_prompt)[1].to(self.device)
 
         interp_prompt = prompt_embed + edit_prompt
 
-        noised_latent_T = self.editor.latent_proc.ddim_forward(
+        noised_latent_T = self.latent_proc.ddim_forward(
             full_noise_level,
             self.config.guidance_scale,
             image_latent,
@@ -89,7 +90,7 @@ class SemanticEditor():
         )
 
         ddim_backward_fn = functools.partial(
-            self.editor.latent_proc.ddim_backward,
+            self.latent_proc.ddim_backward,
             guidance_scale=self.config.guidance_scale,
             neg_prompt_embed=self.state.neg_prompt_embed,
             uncond_prompt_embed=self.state.uncond_prompt_embed,
@@ -104,13 +105,12 @@ class SemanticEditor():
             end_timestep=end_timestep,
         )
 
-        denoised_edited_latents = self.editor.run_edit_local_encoder_pullback_zt(
+        denoised_edited_latents = self.run_edit_local_encoder_pullback_zt(
             self.config,
             noised_latent_t,
             noised_latent_T,
             0,
             backward_fn=ddim_backward_fn,
-            output_dir=self.config.output_dir
         )
 
         return denoised_edited_latents
@@ -123,12 +123,10 @@ class SemanticEditor():
             latent_T,
             idx,
             backward_fn=None,
-            output_dir=None,
             vis_vT=False,
         ):
         block_idx = 0
         num_steps = 100
-        seed = self.generator.initial_seed()
 
         print(
             f"current experiment: idx: {idx}, "
@@ -146,10 +144,10 @@ class SemanticEditor():
             self.edit_prompt_emb = self.pipe.encode_prompt(edit_prompt)[0]
 
         # get local basis
-        local_basis_name = f'local_basis-_{idx}-{self.config.noise_level}T-"{edit_prompt}"-block_{block_idx}-seed_{seed}'
+        local_basis_name = f'local_basis-_{idx}-{self.config.noise_level}T-"{edit_prompt}"-block_{block_idx}'
 
 
-        save_dir = f'./inputs/local_encoder_pullback_stable_diffusion-dataset_-num_steps_{num_steps}-pca_rank_{config.semantic_edit_args['pca_rank']}'
+        save_dir = f'./inputs/local_encoder_pullback_stable_diffusion-dataset_-num_steps_{num_steps}-pca_rank_{config.semantic_edit_args["pca_rank"]}'
         os.makedirs(save_dir, exist_ok=True)
 
         u_path = os.path.join(save_dir, 'u-' + local_basis_name + '.pt')
@@ -162,8 +160,8 @@ class SemanticEditor():
 
         # load pre-computed local basis
         if os.path.exists(u_path) and os.path.exists(vT_path):
-            u = torch.load(u_path, map_location=self.device).type(self.dtype)
-            vT = torch.load(vT_path, map_location=self.device).type(self.dtype)
+            u = torch.load(u_path, map_location=self.device)
+            vT = torch.load(vT_path, map_location=self.device)
 
         # computed local basis
         else:
@@ -180,7 +178,7 @@ class SemanticEditor():
                 convergence_threshold=1e-4,
             )
 
-            vT = vT.to(device=self.device, dtype=self.dtype)
+            vT = vT.to(device=self.device)
 
             # save semantic direction in h-space
             torch.save(u, u_path)
@@ -212,7 +210,7 @@ class SemanticEditor():
         original_latent_t = latent_t.clone()
         denoised_edited_latents = []
 
-        for pc_idx in range(vis_num_pc):
+        for pc_idx in range(config.semantic_edit_args['vis_num_pc']):
             latent_dir = []
             dir_count = 0
             for direction in [1, -1]: # +v, -v
@@ -221,7 +219,7 @@ class SemanticEditor():
 
                 # edit latent_t along vk direction with **x-space guidance**
                 latent_t_list = [original_latent_t.clone()]
-                for _ in tqdm(range(x_guidance_step), desc=f'x_space_guidance edit, pc_idx: {pc_idx}, dir: {dir_count}'):
+                for _ in tqdm(range(config.semantic_edit_args['x_guidance_step']), desc=f'x_space_guidance edit, pc_idx: {pc_idx}, dir: {dir_count}'):
                     latent_t_edit = self.x_space_guidance(
                         latent_t_list[-1], t=t, vk=vk,
                         single_edit_step=1,
@@ -229,7 +227,7 @@ class SemanticEditor():
                     )
                     latent_t_list.append(latent_t_edit)
                 latent_t = torch.cat(latent_t_list, dim=0)
-                latent_t = latent_t[::(latent_t.size(0) // vis_num)]
+                latent_t = latent_t[::(latent_t.size(0) // config.semantic_edit_args['vis_num'])]
 
                 if backward_fn is not None:
                     for i, latent in enumerate(latent_t):
@@ -254,7 +252,6 @@ class SemanticEditor():
         interp_prompt,
         semantic_edit_args,
         edit_prompt,
-        output_dir=None,
         ):
 
         full_noise_level = 1
@@ -291,7 +288,6 @@ class SemanticEditor():
             latent_T,
             0,
             backward_fn=ddim_backward_fn,
-            output_dir=output_dir
         )
         return denoised_edited_latents
 
@@ -314,7 +310,7 @@ class SemanticEditor():
 
     def get_h(
             self, sample=None, timestep=None, encoder_hidden_states=None,
-            block_idx=None, verbose=False,
+            op='mid', block_idx=0, verbose=False,
         ):
         '''
         Args
@@ -335,20 +331,43 @@ class SemanticEditor():
         elif len(timesteps.shape) == 0:
             timesteps = timesteps[None].to(sample.device)
 
+
+        unet = self.pipe.unet
         # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
         timesteps = timesteps.expand(sample.shape[0])
-        t_emb = self.time_proj(timesteps)
-        t_emb = t_emb.to(dtype=self.dtype)
-        emb = self.time_embedding(t_emb)
+        t_emb = unet.time_proj(timesteps)
+        # t_emb = t_emb.to(dtype=self.dtype)
+        emb = unet.time_embedding(t_emb)
 
         # pre-process
-        sample = self.conv_in(sample)
+        sample = unet.conv_in(sample)
+
+        # down
+        down_block_res_samples = (sample,)
+        for down_block_idx, downsample_block in enumerate(unet.down_blocks):
+            if (op == 'down') & (block_idx == down_block_idx):
+                sample, res_samples, h_space = down_block_forward(
+                    downsample_block, hidden_states=sample, temb=emb, encoder_hidden_states=encoder_hidden_states, timesteps=timestep, uk=None, 
+                )
+                return h_space
+            
+            elif hasattr(downsample_block, "has_cross_attention") and downsample_block.has_cross_attention:
+                sample, res_samples = downsample_block(
+                    hidden_states=sample, temb=emb, encoder_hidden_states=encoder_hidden_states,
+                )
+            else:
+                sample, res_samples = downsample_block(hidden_states=sample, temb=emb)
+
+            if (op == 'down') & (block_idx == down_block_idx):
+                return sample
+
+            down_block_res_samples += res_samples
 
         # mid
-        sample = self.mid_block(sample, emb, encoder_hidden_states=encoder_hidden_states)
+        sample = unet.mid_block(sample, emb, encoder_hidden_states=encoder_hidden_states)
         if (op == 'mid') & (block_idx == 0):
-            # if verbose:
-            #     print(f'op : {op}, block_idx : {block_idx}, return h.shape : {sample.shape}')
+            if verbose:
+                print(f'op : {op}, block_idx : {block_idx}, return h.shape : {sample.shape}')
             return sample
 
 

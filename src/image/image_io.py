@@ -1,40 +1,41 @@
-import torch
-from scheduler import Scheduler
-from PIL import Image, ImageDraw
 import os
+import torch
+
+from PIL import Image, ImageDraw
 from torchvision import transforms
 
+from .scheduler import Scheduler
+
 class ImageProcessor():
-    def __init__(self, pipe, config, state):
+    def __init__(self, pipe, config, state, editor):
 
         self.pipe = pipe
         self.device = config.device
+        self.state = state
+        self.editor = editor
+        self.resolution = config.resolution
         self.guidance_scale = config.guidance_scale
         self.noise_level = config.noise_level
-        self.uncond_prompt_embed = state.uncond_prompt_embed
-        self.neg_prompt_embed = state.neg_prompt_embed
         self.use_neg_cfg = config.use_neg_cfg
         self.output_interval = config.output_interval
         self.use_pu_sampling = config.use_pu_sampling
         self.output_start_images = config.output_start_images
 
-        self.timesteps_out = state.timesteps_out
-
     def decode_spline_latents(self, latent_spline, interp_prompt):
         assert latent_spline.shape[0] == interp_prompt.shape[0]
         images = []
         num_images = latent_spline.shape[0]
-        latent_dim = int(self.pipe.resolution[0] / 8)
+        latent_dim = int(self.resolution / 8)
 
         print(f"\nDecoding {num_images} latents into image...")
         for i in range(num_images):
             print(f"\nImage {i+1}/{num_images} | noise_level: {self.noise_level} | guidance_scale: {self.guidance_scale} | using negative cfg: {self.use_neg_cfg}| ")
-            latent = self.pipe.ddim_backward(
+            latent = self.editor.latent_proc.ddim_backward(
                 self.noise_level,
                 self.guidance_scale,
                 latent_spline[i].reshape(1,4, latent_dim, latent_dim),
-                self.neg_prompt_embed,
-                self.uncond_prompt_embed,
+                self.state.neg_prompt_embed,
+                self.state.uncond_prompt_embed,
                 interp_prompt[i:i+1,:,:],
                 eta=0.0,
                 use_neg_cfg=self.use_neg_cfg
@@ -47,7 +48,7 @@ class ImageProcessor():
 
     def get_spline_images(self, spline, interp_prompt, image1, image2):
         # Do we want the start images too?
-        images = self.decode_spline_latents(spline(self.timesteps_out), interp_prompt)
+        images = self.decode_spline_latents(spline(self.state.timesteps_out), interp_prompt)
 
         if not self.output_start_images:
             assert image1 is not None and image2 is not None
@@ -58,7 +59,7 @@ class ImageProcessor():
     def produce_images(self, spline, prompt_embed1, prompt_embed2, image1, image2, out_name):
         # output the images from spline and given t, embed_cond, and save them
         # consider if we want to do perceptual uniform sampling, and save the images separately
-        interp_prompt = spline.lerp(self.timesteps_out, prompt_embed1, prompt_embed2)
+        interp_prompt = spline.lerp(self.state.timesteps_out, prompt_embed1, prompt_embed2)
 
         images = self.get_spline_images(spline, interp_prompt, image1, image2)
 

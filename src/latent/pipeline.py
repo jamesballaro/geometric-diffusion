@@ -48,15 +48,13 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
         super().__init__(vae, text_encoder, tokenizer, unet, scheduler, safety_checker, feature_extractor, image_encoder, requires_safety_checker)
 
         self.generator = torch.Generator(device=self.device)
+        
         self.disable_xformers_memory_efficient_attention()
-
+        self.unet.set_attn_processor(AttnProcessor())
+        
         self.unet.requires_grad_(False)
         self.text_encoder.requires_grad_(False)
         self.vae.requires_grad_(False)
-
-        # Latent downsizing factor for SD2.1 = 8
-        if self.resolution:
-            self.latent_dim = int(self.resolution[0] / 8)
 
     def set_seed(self, seed):
         generator = torch.Generator(device=self.device).manual_seed(seed)

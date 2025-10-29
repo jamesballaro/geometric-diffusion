@@ -1,10 +1,10 @@
 #!/bin/bash
 
 ARGS=(
-  "--path_to_pretrained_model" "stabilityai/stable-diffusion-2-1-base",
+  "--path_to_pretrained_model" "/model/stable-diffusion-2-1-base"
   "--output_dir" "results/"
   "--resolution" 512
-  "--num_inference_steps" 50
+  "--num_inference_steps" 20
   "--num_output_imgs" 7
   "--guidance_scale" 1
   "--strength" 0.002

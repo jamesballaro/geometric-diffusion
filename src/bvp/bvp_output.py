@@ -1,3 +1,7 @@
+import torch
+import os
+
+from PIL import Image, ImageDraw
 from .bvp_structs import BVPConfig, BVPState
 
 class BVP_OutputModule():
@@ -43,9 +47,9 @@ class BVP_OutputModule():
         image_list = [img for img in images]
         self.save_images(image_list, out_name, edit_idx=self.state.edit_idx)
 
-    def output_semantic_edit_latent(self, latent):
+    def output_semantic_edit_latent(self, latent, out_name):
 
-        denoised_edited_latents = self.editor.calculate_semantic_edit_latent(latent, out_name)
+        denoised_edited_latents = self.editor.calculate_semantic_edit_latent(latent)
 
         # Save images
         for pca_rank_latent in denoised_edited_latents:
@@ -76,7 +80,7 @@ class BVP_OutputModule():
     def output_interp_images(self,  method):
         """
         This functions uses standard linear interpolation to generate a continuous image sequence
-        """"
+        """
         # Then we deterministically noise the latents:
         noised_latent1 = self.editor.latent_proc.ddim_forward(self.config.noise_level, self.config.guidance_scale, self.state.image_latent1, self.state.uncond_prompt_embed, self.state.prompt_embed_opt1, self.state.neg_prompt_embed, self.config.use_neg_cfg)
         noised_latent2 = self.editor.latent_proc.ddim_forward(self.config.noise_level, self.config.guidance_scale, self.state.image_latent2, self.state.uncond_prompt_embed, self.state.prompt_embed_opt2, self.state.neg_prompt_embed, self.config.use_neg_cfg)
@@ -176,22 +180,22 @@ class BVP_OutputModule():
         return image_list
 
     def display_alongside(self, image_list, edit_idx=None, padding=10, frame_color=(255, 255, 255), edit_color=(255, 0, 0), edit_width=10):
-        padded_width = self.resolution[0] + 2 * padding
-        padded_height = self.resolution[1] + 2 * padding
+        padded_width = self.resolution + 2 * padding
+        padded_height = self.resolution + 2 * padding
         res = Image.new("RGB", (padded_width * len(image_list), padded_height), frame_color)
         draw = ImageDraw.Draw(res)
 
         for i, image in enumerate(image_list):
             x_offset = i * padded_width + padding
             y_offset = padding
-            img_resized = image.resize(self.resolution)
+            img_resized = image.resize((self.resolution, self.resolution))
             res.paste(img_resized, (x_offset, y_offset))
 
             # Draw a border if the image is edited
             if edit_idx:
                 if i == edit_idx:
                     rect_start = (x_offset - edit_width//2, y_offset - edit_width//2)
-                    rect_end = (x_offset + self.resolution[0] + edit_width//2, y_offset + self.resolution[1] + edit_width//2)
+                    rect_end = (x_offset + self.resolution + edit_width//2, y_offset + self.resolution + edit_width//2)
                     draw.rectangle([rect_start, rect_end], outline=edit_color, width=edit_width)
 
         return res

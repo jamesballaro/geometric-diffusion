@@ -61,9 +61,9 @@ class BVPState:
     neg_prompt_embed: torch.Tensor | None = None
     timesteps_out: torch.Tensor | None = None
 
-    spline: "SphericalCubicSpline" | None = None
+    spline: SphericalCubicSpline | None = None
 
-    score_unit: "ScoreProcessor" | None = None
+    score_unit: ScoreProcessor | None = None
 
     # Semantic edit state
     edit_idx: int = 0

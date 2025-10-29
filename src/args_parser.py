@@ -11,12 +11,6 @@ def parse_args(input_args=None):
         help="Path or name of pretrained model"
     )
     parser.add_argument(
-        "--config_path",
-        type=str,
-        default="configs/config.yaml",
-        help="Path to YAML configuration file"
-    )
-    parser.add_argument(
         "--output_dir",
         type=str,
         default="results/",
@@ -24,6 +18,12 @@ def parse_args(input_args=None):
     )
 
     # Generation parameters
+    parser.add_argument(
+        "--resolution",
+        type=int,
+        default=512,
+        help="Resolution of images to generate"
+    )
     parser.add_argument(
         "--num_inference_steps",
         type=int,

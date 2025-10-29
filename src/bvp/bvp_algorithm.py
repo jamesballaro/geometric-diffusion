@@ -18,7 +18,7 @@ from ..image.image_io import ImageProcessor
 from ..latent.semantic import SemanticEditor
 
 class BVPOptimiser():
-    def __init__(self, config, opt_max_iter, opt_lr, lr_scheduler='linear', lr_divide=True):
+    def __init__(self, config, lr_scheduler='linear', lr_divide=True):
         self.opt_max_iter = config.bvp_opt_args['opt_max_iter']
         self.lr_init = config.bvp_opt_args['opt_lr']
         self.lr_scheduler = lr_scheduler
@@ -50,23 +50,16 @@ class BVPAlgorithm():
         for key, value in config.__dict__.items():
             setattr(self, key, value)
 
-        # Process prompts
-        self.prompt1 = pipe.encode_prompt(config.prompt1)[1].to(config.device)
-        self.prompt2 = pipe.encode_prompt(config.prompt2)[1].to(config.device)
-        self.uncond_prompt_embed = pipe.encode_prompt(config.uncond_prompt)[1].to(config.device)
-        self.neg_prompt_embed = pipe.encode_prompt(config.neg_prompt)[1].to(config.device)
-    
         self.init_submodules()
 
     def init_submodules(self):
-        self.update_state()
         # Initialize optimiser sub units
         self.sampler = BisectionSampler(self.device, **self.bisection_args)
         self.score_unit = ScoreProcessor(self.pipe, self.config, self.state)
         self.optimizer = BVPOptimiser(self.config)
         self.timesteps_out = torch.linspace(0, 1, self.num_output_imgs).to(self.device)
-        self.image_proc = ImageProcessor(self.pipe, self.config, self.state,)
-        self.editor = SemanticEditor(self.generator, self.pipe, self.state, self.config)
+        self.editor = SemanticEditor(self.pipe, self.state, self.config)
+        self.image_proc = ImageProcessor(self.pipe, self.config, self.state, self.editor)
         self.bvp_io_unit = BVP_OutputModule(self.pipe, self.editor, self.image_proc, self.state, self.config)
         self.gradient_unit = BVP_GradientModule(self.bvp_io_unit, self.state, self.config)
 
@@ -133,6 +126,13 @@ class BVPAlgorithm():
 
     # Initialisation
     def init(self):
+        # Process prompts
+        self.prompt1 = self.pipe.encode_prompt(self.config.prompt1)[1].to(self.config.device)
+        self.prompt2 = self.pipe.encode_prompt(self.config.prompt2)[1].to(self.config.device)
+        self.uncond_prompt_embed = self.pipe.encode_prompt(self.config.uncond_prompt)[1].to(self.config.device)
+        self.neg_prompt_embed = self.pipe.encode_prompt(self.config.neg_prompt)[1].to(self.config.device)
+
+        # Process images
         self.image_tensor1 = self.pipe.preprocess_image(self.image_path1).to(self.device)
         self.image_tensor2 = self.pipe.preprocess_image(self.image_path2).to(self.device)
 
@@ -141,13 +141,13 @@ class BVPAlgorithm():
         self.image_latent2 = self.pipe.encode_image(self.image_tensor2)
 
         # We start by inverting the prompts
-        self.prompt_embed_opt1 = self.editor.latent_proc.load_text_inversion(self.prompt1, self.image_latent1, self.test_name, 'A', **self.text_inv_args)
-        self.prompt_embed_opt2 = self.editor.latent_proc.load_text_inversion(self.prompt2, self.image_latent1, self.test_name, 'B', **self.text_inv_args)
+        self.prompt_embed_opt1 = self.editor.text_inverter.load_text_inversion(self.prompt1, self.image_latent1, self.test_name, 'A', **self.text_inv_args)
+        self.prompt_embed_opt2 = self.editor.text_inverter.load_text_inversion(self.prompt2, self.image_latent2, self.test_name, 'B', **self.text_inv_args)
 
         print("Starting DDIM noising")
         # Then we deterministically noise the latents:
-        noised_latent1 = self.pipe.ddim_forward(self.noise_level, self.guidance_scale, self.image_latent1, self.uncond_prompt_embed, self.prompt_embed_opt1, self.neg_prompt_embed, self.use_neg_cfg).reshape(-1)
-        noised_latent2 = self.pipe.ddim_forward(self.noise_level, self.guidance_scale, self.image_latent2, self.uncond_prompt_embed, self.prompt_embed_opt2, self.neg_prompt_embed, self.use_neg_cfg).reshape(-1)
+        noised_latent1 = self.editor.latent_proc.ddim_forward(self.noise_level, self.guidance_scale, self.image_latent1, self.uncond_prompt_embed, self.prompt_embed_opt1, self.neg_prompt_embed, self.use_neg_cfg).reshape(-1)
+        noised_latent2 = self.editor.latent_proc.ddim_forward(self.noise_level, self.guidance_scale, self.image_latent2, self.uncond_prompt_embed, self.prompt_embed_opt2, self.neg_prompt_embed, self.use_neg_cfg).reshape(-1)
 
         # for brevity (these are the points on the latent space which we interpolate between)
         p1 = noised_latent1
@@ -174,6 +174,8 @@ class BVPAlgorithm():
    # Run Optimisation
     def optimise(self):
         self.iter = 0
+        self.edit_idx = self.semantic_edit_args["image_idx"]
+
         self.update_state()
 
         self.bvp_io_unit.output_spline_images('start')
@@ -186,7 +188,6 @@ class BVPAlgorithm():
             if finish or i == self.optimizer.opt_max_iter - 1:
 
                 torch.cuda.empty_cache()
-                self.edit_idx = self.semantic_edit_args["image_idx"]
                 print("edit_idx", self.edit_idx)
 
                 spline_latent =  self.spline(self.timesteps_out)[self.edit_idx]
@@ -194,8 +195,8 @@ class BVPAlgorithm():
                 # Run the pullback diffusion method to move the latent in semantically meaningful directions
                 self.bvp_io_unit.output_semantic_edit_latent(spline_latent, 'semantic')
 
-                self.bvp_io_unit.output_semantic_edit_input_image(self.image_path1, 1)
-                self.bvp_io_unit.output_semantic_edit_input_image(self.image_path2, 2)
+                #self.bvp_io_unit.output_semantic_edit_input_image(self.image_path1, 1)
+                #self.bvp_io_unit.output_semantic_edit_input_image(self.image_path2, 2)
 
                 # Output (un-edited) images from the spline interpolation
                 self.bvp_io_unit.output_spline_images('final')

@@ -47,5 +47,5 @@ semantic_edit_args:
   vis_num_pc: 2
   pca_rank: 3
   edit_prompt: "big ears"
-  x_guidance_step: 64
+  x_guidance_step: 6 # 64
   x_guidance_strength: 0.3

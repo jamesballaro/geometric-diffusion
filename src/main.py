@@ -4,6 +4,7 @@ import yaml
 
 from diffusers import StableDiffusionPipeline, DDIMScheduler, UNet2DConditionModel
 
+from .bvp.bvp_structs import BVPConfig
 from .args_parser import parse_args
 from .latent.pipeline import CustomStableDiffusionPipeline
 from .bvp.bvp_algorithm import BVPAlgorithm
@@ -26,14 +27,13 @@ def main(args):
 
     cfg_dict.update({
         'device': device,
-        'pipe': pipe,
         'resolution': args.resolution,
         'num_output_imgs': args.num_output_imgs,
         'output_dir': args.output_dir,
     })
 
     config = BVPConfig(**cfg_dict)
-    interpolation = BVPAlgorithm(config)
+    interpolation = BVPAlgorithm(pipe, config)
     
     interpolation.init()
     interpolation.optimise()

@@ -4,14 +4,15 @@ from .geodesic import SphericalCubicSpline, BisectionSampler
 from .geodesic import norm_fix, norm_fix_batch, o_project, o_project_batch
 
 class ScoreProcessor():
-    def __init__(self, pipe, config, state,):
+    def __init__(self, pipe, config, state):
 
         self.pipe = pipe
         self.device = config.device
+        self.state = state
         self.grad_batch_size = config.grad_args['grad_batch_size']
         self.grad_sample_range = config.grad_args['grad_sample_range']
-        self.uncond_prompt_embed = state.uncond_prompt_embed
-        self.neg_prompt_embed = state.neg_prompt_embed
+        #self.uncond_prompt_embed = state.uncond_prompt_embed
+        #self.neg_prompt_embed = state.neg_prompt_embed
         self.grad_guidance_0 = config.grad_args['grad_guidance_0']
         self.grad_guidance_1 = config.grad_args['grad_guidance_1']
         self.time_step = pipe.get_timesteps(config.noise_level, return_single=True)
@@ -45,8 +46,8 @@ class ScoreProcessor():
         batch_size = latent.shape[0]
 
         #broadcast the conditions
-        uncond_prompt_embed = self.uncond_prompt_embed.repeat(batch_size, 1, 1)
-        neg_prompt_embed = self.neg_prompt_embed.repeat(batch_size, 1, 1)
+        uncond_prompt_embed = self.state.uncond_prompt_embed.repeat(batch_size, 1, 1)
+        neg_prompt_embed = self.state.neg_prompt_embed.repeat(batch_size, 1, 1)
 
         latent, t = self.grad_prepare(latent)
 

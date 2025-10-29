@@ -19,7 +19,6 @@ class LatentProcessor():
     def __init__(self, pipe, device):
         self.pipe = pipe
         self.device = device
-        self.text_inverter = TextInverter(pipe, device)
 
     def ddim_backward(self,
         noise_level,
@@ -34,10 +33,8 @@ class LatentProcessor():
         ):
 
         if noise_level > 0:
-
             time_steps = self.pipe.get_timesteps(noise_level)
-            #TODO: extra_step_kwargs 
-            extra_step_kwargs = self.prepare_extra_step_kwargs(self.generator, eta=eta)
+            extra_step_kwargs = self.pipe.prepare_extra_step_kwargs(self.pipe.generator, eta=eta)
 
             if guidance_scale>0:
                 if use_neg_cfg:
