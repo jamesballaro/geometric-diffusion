@@ -70,7 +70,7 @@ class BVPAlgorithm():
 
         if query_points is None:
             print()
-            print("Optimization finished")
+            print("\nOptimization finished")
             print("+"*50)
             return True # means the optimisation finished, strength to max
         query_points = query_points.to(self.device)
