@@ -1,9 +1,0 @@
-.gitignore
-apptainer/apptainer_setup.txt
-TODO
-venv
-src/__pycache__
-text_inversion_checkpoints/
-obs/
-inputs/
-assets/
