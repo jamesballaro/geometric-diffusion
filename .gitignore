@@ -1,3 +1,4 @@
+.gitignore
 apptainer/apptainer_setup.txt
 TODO
 venv
