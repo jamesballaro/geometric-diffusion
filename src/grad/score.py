@@ -11,8 +11,6 @@ class ScoreProcessor():
         self.state = state
         self.grad_batch_size = config.grad_args['grad_batch_size']
         self.grad_sample_range = config.grad_args['grad_sample_range']
-        #self.uncond_prompt_embed = state.uncond_prompt_embed
-        #self.neg_prompt_embed = state.neg_prompt_embed
         self.grad_guidance_0 = config.grad_args['grad_guidance_0']
         self.grad_guidance_1 = config.grad_args['grad_guidance_1']
         self.time_step = pipe.get_timesteps(config.noise_level, return_single=True)

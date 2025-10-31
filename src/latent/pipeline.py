@@ -43,15 +43,16 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
         safety_checker: StableDiffusionSafetyChecker,
         feature_extractor: CLIPImageProcessor,
         image_encoder: CLIPVisionModelWithProjection = None,
-        requires_safety_checker: bool = True):
+        requires_safety_checker: bool = True,
+        ):
 
         super().__init__(vae, text_encoder, tokenizer, unet, scheduler, safety_checker, feature_extractor, image_encoder, requires_safety_checker)
 
         self.generator = torch.Generator(device=self.device)
-        
+
         self.disable_xformers_memory_efficient_attention()
         self.unet.set_attn_processor(AttnProcessor())
-        
+
         self.unet.requires_grad_(False)
         self.text_encoder.requires_grad_(False)
         self.vae.requires_grad_(False)
@@ -94,7 +95,6 @@ class CustomStableDiffusionPipeline(StableDiffusionPipeline):
 
         image = input_image.convert("RGB")
         image = image.resize(self.resolution)
-        # image_tensor = torch.tensor(list(image.getdata()), dtype=self.vae.dtype).reshape(self.resolution[1], self.resolution[0], 3)
         image_tensor = (np.array(image).astype(np.float32) / 255.0) * 2.0 - 1.0
         image_tensor = torch.from_numpy(image_tensor).unsqueeze(0).permute(0, 3, 1, 2)
 

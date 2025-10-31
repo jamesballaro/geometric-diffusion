@@ -54,6 +54,12 @@ def parse_args(input_args=None):
         default=0.6,
         help="Fraction of high noise to apply"
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Seed for random number generator"
+    )
 
     if input_args is not None:
         args = parser.parse_args(input_args)

@@ -69,7 +69,9 @@ class BVPAlgorithm():
         query_points = self.sampler.get_query_points()
 
         if query_points is None:
-            print("t_opt is none")
+            print()
+            print("Optimization finished")
+            print("+"*50)
             return True # means the optimisation finished, strength to max
         query_points = query_points.to(self.device)
 
@@ -97,10 +99,8 @@ class BVPAlgorithm():
         control_t = qp.detach().cpu().numpy()
 
         #Logging
-        if self.iter % 5 == 0:
-            print('optimise {} iteration: {}, grad_norm: {}, angle: {}'.format(
-                        self.test_name, self.iter, mean_all_norm, mean_angle))
-            print(f't = [{control_t}]')
+        print('\r\titeration: {}, grad_norm: {:.4f}, angle: {:.4f}, \t strength: {}'.format(
+                self.iter, mean_all_norm, mean_angle, self.sampler.cur_strength), end='')
 
         # Optimisation step:
         X_opt = X_opt - it_lr * grad_all
@@ -167,7 +167,6 @@ class BVPAlgorithm():
         control_points = torch.tensor([0.0,1.0]).to(self.device)
         end_points = torch.stack([p1, p2], dim=0)
 
-        print("\nInitializing Spline")
         torch.cuda.empty_cache()
         self.spline = SphericalCubicSpline(control_points, end_points)
 
@@ -179,6 +178,11 @@ class BVPAlgorithm():
         self.update_state()
 
         self.bvp_io_unit.output_spline_images('start')
+        
+        print()
+        print("+"*50)
+        print(f"Testing: {self.test_name}, maximum iterations: {self.optimizer.opt_max_iter} \nStarting spline optimisation:")
+        print("+"*50)
 
         for i in range(self.optimizer.opt_max_iter):
             # Main loop occurs here!
@@ -188,12 +192,11 @@ class BVPAlgorithm():
             if finish or i == self.optimizer.opt_max_iter - 1:
 
                 torch.cuda.empty_cache()
-                print("edit_idx", self.edit_idx)
 
                 spline_latent =  self.spline(self.timesteps_out)[self.edit_idx]
 
                 # Run the pullback diffusion method to move the latent in semantically meaningful directions
-                self.bvp_io_unit.output_semantic_edit_latent(spline_latent, 'semantic')
+                # self.bvp_io_unit.output_semantic_edit_latent(spline_latent, 'semantic')
 
                 #self.bvp_io_unit.output_semantic_edit_input_image(self.image_path1, 1)
                 #self.bvp_io_unit.output_semantic_edit_input_image(self.image_path2, 2)
@@ -210,7 +213,7 @@ class BVPAlgorithm():
         self.bvp_io_unit.save_optimisation(self.path)
 
         ts = torch.linspace(0, 1, self.num_output_imgs, device=self.device)
-        torch.save(self.spline(ts,1), os.path.join(self.output_dir, 'final_vs.pt'))
+        torch.save(self.spline(ts,1), 'checkpoints/final_vs.pt')
 
     def update_state(self):
         state = self.state  # local alias for readability

@@ -1,6 +1,6 @@
-test_name: "dog17_1est"
-image_path1: "assets/dog17_0.png"
-image_path2: "assets/dog17_1.png"
+test_name: "dog2dog"
+image_path1: "assets/dog_0.png"
+image_path2: "assets/dog_1.png"
 prompt1: "a cute dog"
 prompt2: "a cute dog"
 uncond_prompt: ""
@@ -27,7 +27,7 @@ bvp_opt_args:
 text_inv_args:
   text_inv_lr: 0.005
   text_inv_bsz: 2
-  text_inv_path: "text_inversion_checkpoints/sd2-1/"
+  text_inv_path: "checkpoints/text_inversion/sd2-1/"
   text_inv_steps: 500
 
 grad_args:
@@ -42,10 +42,10 @@ bisection_args:
   only_new_points: false
 
 semantic_edit_args:
-  image_idx: 2
+  image_idx: 6
   vis_num: 2
   vis_num_pc: 2
   pca_rank: 3
   edit_prompt: "big ears"
-  x_guidance_step: 6 # 64
+  x_guidance_step: 64 # 64
   x_guidance_strength: 0.3

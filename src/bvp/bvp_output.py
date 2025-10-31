@@ -201,5 +201,5 @@ class BVP_OutputModule():
         return res
 
     def save_optimisation(self, path):
-        torch.save(path, os.path.join(self.output_dir, 'opt_points.pth'))
-        print(f'Optimisation points saved to {self.output_dir}opt_points.pth')
+        torch.save(path, 'checkpoints/opt_points.pth')
+        print(f'Optimisation points saved to "checkpoints/opt_points.pth"')

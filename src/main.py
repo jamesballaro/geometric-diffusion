@@ -14,10 +14,11 @@ def main(args):
     torch_dtype = torch.float32
 
     scheduler = DDIMScheduler.from_pretrained(args.path_to_pretrained_model, subfolder='scheduler')
-    pipe = CustomStableDiffusionPipeline.from_pretrained(args.path_to_pretrained_model, scheduler=scheduler, torch_dtype=torch.float32)
+    pipe = CustomStableDiffusionPipeline.from_pretrained(args.path_to_pretrained_model, scheduler=scheduler)
 
     pipe.to(device)
     pipe.set_resolution(args.resolution)
+    # pipe.set_seed(args.seed)
     pipe.scheduler.set_timesteps(args.num_inference_steps, device=device)
 
     os.makedirs(args.output_dir, exist_ok=True)

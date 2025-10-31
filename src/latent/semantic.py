@@ -147,7 +147,7 @@ class SemanticEditor():
         local_basis_name = f'local_basis-_{idx}-{self.config.noise_level}T-"{edit_prompt}"-block_{block_idx}'
 
 
-        save_dir = f'./inputs/local_encoder_pullback_stable_diffusion-dataset_-num_steps_{num_steps}-pca_rank_{config.semantic_edit_args["pca_rank"]}'
+        save_dir = f'./checkpoints/local_encoder_pullback_stable_diffusion-dataset_-num_steps_{num_steps}-pca_rank_{config.semantic_edit_args["pca_rank"]}'
         os.makedirs(save_dir, exist_ok=True)
 
         u_path = os.path.join(save_dir, 'u-' + local_basis_name + '.pt')
